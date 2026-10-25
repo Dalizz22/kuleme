@@ -1,0 +1,239 @@
+{
+  "schema_version": 1,
+  "template_key": "sale",
+  "name": "待售清单",
+  "description": "待上架/在售/已售/撤售、挂牌价、成交记录、交付状态。成交与交付记录走专门业务表，不存附加资料。",
+  "group": "core",
+  "owner": "core",
+  "management": "quantity",
+  "unit": "件",
+  "is_default": false,
+  "sort": 50,
+  "fields": [
+    {
+      "field_id": "listing_status",
+      "label": "挂牌状态",
+      "type": "enum",
+      "owner": "core",
+      "options": [
+        "待上架",
+        "在售",
+        "已售",
+        "撤售"
+      ],
+      "default": "待上架"
+    },
+    {
+      "field_id": "asking_price",
+      "label": "挂牌价",
+      "type": "money",
+      "owner": "core",
+      "unit": "currency"
+    },
+    {
+      "field_id": "currency",
+      "label": "币种",
+      "type": "text",
+      "owner": "core",
+      "max_len": 8,
+      "default": "CNY"
+    },
+    {
+      "field_id": "listed_at",
+      "label": "上架日期",
+      "type": "date",
+      "owner": "core"
+    },
+    {
+      "field_id": "sold_at",
+      "label": "成交日期",
+      "type": "date",
+      "owner": "core",
+      "help": "成交金额与交付状态在销售业务表中维护"
+    },
+    {
+      "field_id": "delivery_status",
+      "label": "交付状态",
+      "type": "enum",
+      "owner": "core",
+      "options": [
+        "未交付",
+        "已交付",
+        "部分交付"
+      ],
+      "default": "未交付"
+    },
+    {
+      "field_id": "delivery_note",
+      "label": "交付说明",
+      "type": "textarea",
+      "owner": "core",
+      "max_len": 500
+    },
+    {
+      "field_id": "cost_price",
+      "label": "成本价",
+      "type": "money",
+      "owner": "core",
+      "unit": "currency"
+    },
+    {
+      "field_id": "channel",
+      "label": "渠道",
+      "type": "text",
+      "owner": "core",
+      "max_len": 64
+    },
+    {
+      "field_id": "condition",
+      "label": "品相",
+      "type": "enum",
+      "owner": "core",
+      "options": [
+        "全新未拆",
+        "近全新",
+        "良好",
+        "有使用痕迹",
+        "有瑕疵",
+        "残品"
+      ]
+    },
+    {
+      "field_id": "tags",
+      "label": "标签",
+      "type": "text",
+      "owner": "core",
+      "max_len": 256
+    }
+  ],
+  "columns": [
+    {
+      "field_id": "name",
+      "width": 220
+    },
+    {
+      "field_id": "public_code",
+      "width": 130
+    },
+    {
+      "field_id": "listing_status",
+      "width": 110
+    },
+    {
+      "field_id": "asking_price",
+      "width": 110
+    },
+    {
+      "field_id": "delivery_status",
+      "width": 110
+    },
+    {
+      "field_id": "location_path",
+      "width": 160
+    },
+    {
+      "field_id": "listed_at",
+      "width": 120,
+      "hidden": true
+    },
+    {
+      "field_id": "photo",
+      "width": 72
+    },
+    {
+      "field_id": "updated_at",
+      "width": 160,
+      "hidden": true
+    }
+  ],
+  "filters": [
+    {
+      "key": "all",
+      "label": "全部",
+      "op": "not_empty",
+      "core_field": "name"
+    },
+    {
+      "key": "no_location",
+      "label": "未归档位置",
+      "op": "empty",
+      "core_field": "location_id"
+    },
+    {
+      "key": "photo_missing",
+      "label": "缺照片",
+      "op": "empty",
+      "core_field": "photo"
+    },
+    {
+      "key": "pending_listing",
+      "label": "待上架",
+      "op": "eq",
+      "field_id": "listing_status",
+      "value": "待上架"
+    },
+    {
+      "key": "on_sale",
+      "label": "在售",
+      "op": "eq",
+      "field_id": "listing_status",
+      "value": "在售"
+    },
+    {
+      "key": "sold",
+      "label": "已售",
+      "op": "eq",
+      "field_id": "listing_status",
+      "value": "已售"
+    },
+    {
+      "key": "undelivered",
+      "label": "未交付",
+      "op": "eq",
+      "field_id": "delivery_status",
+      "value": "未交付"
+    },
+    {
+      "key": "no_price",
+      "label": "未定价",
+      "op": "empty",
+      "field_id": "asking_price"
+    }
+  ],
+  "operations": [
+    {
+      "key": "core:view",
+      "label": "查看详情"
+    },
+    {
+      "key": "core:edit",
+      "label": "编辑资料"
+    },
+    {
+      "key": "core:move",
+      "label": "移动到位置/库"
+    },
+    {
+      "key": "core:add_photo",
+      "label": "补充照片"
+    },
+    {
+      "key": "core:print_label",
+      "label": "打印标签"
+    },
+    {
+      "key": "core:export",
+      "label": "导出所选"
+    }
+  ],
+  "preset": {
+    "tags": [
+      "待售"
+    ],
+    "fields": {
+      "listing_status": "待上架",
+      "delivery_status": "未交付",
+      "currency": "CNY"
+    }
+  }
+}

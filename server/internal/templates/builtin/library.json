@@ -1,0 +1,127 @@
+{
+  "schema_version": 1,
+  "template_key": "library",
+  "name": "馆藏清单",
+  "description": "书名、作者、 ISBN、出版社、存放位置、借阅备注。适合藏书、资料、档案盒。",
+  "group": "core",
+  "owner": "core",
+  "management": "serial",
+  "unit": "件",
+  "is_default": false,
+  "sort": 15,
+  "fields": [
+    {
+      "field_id": "author",
+      "label": "作者",
+      "type": "text",
+      "owner": "core",
+      "max_len": 80
+    },
+    {
+      "field_id": "isbn",
+      "label": "ISBN",
+      "type": "text",
+      "owner": "core",
+      "max_len": 20,
+      "help": "国际标准书号"
+    },
+    {
+      "field_id": "publisher",
+      "label": "出版社",
+      "type": "text",
+      "owner": "core",
+      "max_len": 80
+    },
+    {
+      "field_id": "publish_year",
+      "label": "出版年份",
+      "type": "number",
+      "owner": "core",
+      "precision": 0,
+      "unit": "percent"
+    },
+    {
+      "field_id": "purchased_at",
+      "label": "购入日期",
+      "type": "date",
+      "owner": "core"
+    },
+    {
+      "field_id": "price",
+      "label": "价格",
+      "type": "number",
+      "owner": "core",
+      "precision": 2,
+      "unit": "currency"
+    },
+    {
+      "field_id": "tags",
+      "label": "标签",
+      "type": "text",
+      "owner": "core",
+      "max_len": 256
+    }
+  ],
+  "columns": [
+    {
+      "field_id": "name",
+      "width": 220
+    },
+    {
+      "field_id": "public_code",
+      "width": 130
+    },
+    {
+      "field_id": "author",
+      "width": 120
+    },
+    {
+      "field_id": "location_path",
+      "width": 180
+    }
+  ],
+  "filters": [
+    {
+      "key": "all",
+      "label": "全部",
+      "op": "not_empty",
+      "core_field": "name"
+    },
+    {
+      "key": "no_location",
+      "label": "未归档位置",
+      "op": "empty",
+      "core_field": "location_id"
+    }
+  ],
+  "operations": [
+    {
+      "key": "core:view",
+      "label": "查看详情"
+    },
+    {
+      "key": "core:edit",
+      "label": "编辑资料"
+    },
+    {
+      "key": "core:move",
+      "label": "移位"
+    },
+    {
+      "key": "core:add_photo",
+      "label": "添加照片"
+    },
+    {
+      "key": "core:print_label",
+      "label": "打印标签"
+    },
+    {
+      "key": "core:export",
+      "label": "导出"
+    }
+  ],
+  "preset": {
+    "tags": [],
+    "fields": {}
+  }
+}

@@ -1,0 +1,32 @@
+# 依赖与构建产物
+node_modules/
+dist/
+!server/internal/web/dist/
+!server/internal/web/dist/index.html
+unpackage/
+server/bin/
+*.exe
+
+# 运行期数据：数据库、照片、配置、密钥、备份
+data/
+*.log
+
+# 本地环境
+.env
+.env.local
+.DS_Store
+local.properties
+
+# 包管理缓存
+.npm-cache/
+.pnpm-store/
+
+# Go 构建缓存
+.gocache/
+.gomodcache/
+
+# 编辑器
+.idea/
+.vscode/
+*.swp
+.d-draft/

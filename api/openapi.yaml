@@ -1,0 +1,2237 @@
+openapi: 3.0.3
+info:
+  title: 库了么 API
+  version: 1.0.0
+  description: |
+    库了么（klm）HTTP 契约。所有路径带 /api/v1 前缀。
+    响应统一外壳：成功 `{data, request_id}`，失败 `{error:{code,message,details?}, request_id}`。
+    副作用请求支持 Idempotency-Key 头（库存操作强制）。
+
+    契约基线：
+    - 实现状态扩展 `x-klm-status: delivered|planned|removed`。只有 delivered 的路径可直接调用；
+      planned 是已定稿、实现未落地的目标契约（web/android 可据此编码，联调前必须确认状态已变 delivered）；
+      removed 是已下线、路由不再注册的旧接口。
+    - 列表筛选一律服务端执行，`total` 等于过滤后总行数。
+    - 写请求可重试入口统一 Idempotency-Key：同键同内容重放原结果，同键异内容 409。
+    - 业务校验失败优先 422；遗留接口仍存在 400（见 docs/接口契约约定.md 的差异表）。
+    - `GET /items/{id}` 的 allowed_actions 与 action_blocked_reasons 是唯一动作可用性来源，客户端不得自行推导。
+servers:
+  - url: /api/v1
+tags:
+  - {name: system}
+  - {name: auth}
+  - {name: users}
+  - {name: spaces}
+  - {name: categories}
+  - {name: locations}
+  - {name: items}
+  - {name: photos}
+  - {name: operations}
+  - {name: files}
+  - {name: inventory}
+  - {name: stocktakes}
+  - {name: loans}
+  - {name: sales}
+  - {name: jobs}
+  - {name: audit}
+  - {name: templates}
+  - {name: labels}
+  - {name: codes}
+  - {name: transfer}
+  - {name: recycle}
+  - {name: rules}
+  - {name: ai}
+security:
+  - bearerAuth: []
+paths:
+  /system/info:
+    get:
+      tags: [system]
+      security: []
+      summary: 实例信息（含是否已初始化）
+      responses:
+        "200": {description: OK, content: {application/json: {schema: {$ref: "#/components/schemas/SystemInfo"}}}}
+  /setup:
+    post:
+      tags: [auth]
+      security: []
+      summary: 初始化（创建首个管理员；secret 可空=网页向导模式，仅未初始化时可调）
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: "#/components/schemas/SetupInput"}}}
+      responses:
+        "201": {$ref: "#/components/responses/SessionCreated"}
+        "422": {$ref: "#/components/responses/Unprocessable"}
+        "403": {$ref: "#/components/responses/Forbidden", description: "生产环境（KLM_ENV=prod）且 setup secret 为空 → 403，需先配置 KLM_SETUP_SECRET"}
+        "409": {$ref: "#/components/responses/Conflict"}
+  /sessions:
+    post:
+      tags: [auth]
+      security: []
+      summary: 登录（用户名+密码 → 令牌）
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: "#/components/schemas/LoginInput"}}}
+      responses:
+        "201": {$ref: "#/components/responses/SessionCreated"}
+        "422": {$ref: "#/components/responses/Unprocessable"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "429": {$ref: "#/components/responses/RateLimited"}
+    delete:
+      tags: [auth]
+      deprecated: true
+      summary: 登出（撤销当前会话；已由 /sessions/current 取代，此路径不再注册）
+      responses:
+        "200": {$ref: "#/components/responses/OK"}
+  /sessions/current:
+    delete:
+      tags: [auth]
+      operationId: logoutCurrentSession
+      summary: 登出（撤销当前会话）
+      responses:
+        "200": {$ref: "#/components/responses/OK"}
+  /me:
+    get:
+      tags: [auth]
+      summary: 当前用户
+      responses:
+        "200": {$ref: "#/components/responses/UserOK"}
+  /users:
+    get:
+      tags: [users]
+      summary: 用户列表（管理员）
+      parameters: [{$ref: "#/components/parameters/page"}, {$ref: "#/components/parameters/pageSize"}]
+      responses:
+        "200": {$ref: "#/components/responses/UserList"}
+    post:
+      tags: [users]
+      summary: 创建用户（管理员）
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: "#/components/schemas/CreateUserInput"}}}
+      responses:
+        "201": {$ref: "#/components/responses/UserOK"}
+        "422": {$ref: "#/components/responses/Unprocessable"}
+  /users/{id}:
+    patch:
+      tags: [users]
+      summary: 更新用户（显示名/管理员/停用，管理员）
+      parameters: [{$ref: "#/components/parameters/id"}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: "#/components/schemas/UserPatch"}}}
+      responses:
+        "200": {$ref: "#/components/responses/UserOK"}
+        "409": {$ref: "#/components/responses/Conflict"}
+  /users/{id}/password:
+    put:
+      tags: [users]
+      summary: 改密码（管理员代改或本人验旧口令；改完撤销全部会话）
+      parameters: [{$ref: "#/components/parameters/id"}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: "#/components/schemas/PasswordInput"}}}
+      responses:
+        "200": {$ref: "#/components/responses/OK"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+  /spaces:
+    get:
+      tags: [spaces]
+      summary: 库列表（按可见权限过滤）
+      parameters: [{$ref: "#/components/parameters/page"}, {$ref: "#/components/parameters/pageSize"}]
+      responses:
+        "200": {$ref: "#/components/responses/SpaceList"}
+    post:
+      tags: [spaces]
+      summary: 建库（根库自动成为 owner；子库要求父库 admin）
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: "#/components/schemas/SpaceInput"}}}
+      responses:
+        "201": {$ref: "#/components/responses/SpaceOK"}
+        "422": {$ref: "#/components/responses/Unprocessable"}
+  /spaces/{id}:
+    get:
+      tags: [spaces]
+      operationId: getSpace
+      summary: 库详情（【未实现】服务端当前未注册 GET /spaces/:id，客户端从 GET /spaces 列表取）
+      x-klm-status: planned
+      parameters: [{$ref: "#/components/parameters/id"}]
+      responses:
+        "200": {$ref: "#/components/responses/SpaceOK"}
+        "404": {$ref: "#/components/responses/NotFound"}
+    patch:
+      tags: [spaces]
+      summary: 改名/排序/移动（乐观锁 version）
+      parameters: [{$ref: "#/components/parameters/id"}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: "#/components/schemas/NodePatch"}}}
+      responses:
+        "200": {$ref: "#/components/responses/SpaceOK"}
+        "409": {$ref: "#/components/responses/Conflict"}
+    delete:
+      tags: [spaces]
+      summary: 删库（有物品时 409）
+      parameters: [{$ref: "#/components/parameters/id"}]
+      responses:
+        "200": {$ref: "#/components/responses/OK"}
+        "409": {$ref: "#/components/responses/Conflict"}
+  /spaces/{id}/members:
+    get:
+      tags: [spaces]
+      summary: 成员列表
+      parameters: [{$ref: "#/components/parameters/id"}]
+      responses:
+        "200": {$ref: "#/components/responses/MemberList"}
+  /spaces/{id}/members/{uid}:
+    put:
+      tags: [spaces]
+      summary: 设置成员角色（owner/manager/editor/viewer）
+      parameters: [{$ref: "#/components/parameters/id"}, {$ref: "#/components/parameters/uid"}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, required: [role], properties: {role: {type: string, enum: [owner, manager, editor, viewer]}}}}}
+      responses:
+        "200": {$ref: "#/components/responses/MemberOK"}
+    delete:
+      tags: [spaces]
+      summary: 移除成员（最后一个 owner 保护 → 409）
+      parameters: [{$ref: "#/components/parameters/id"}, {$ref: "#/components/parameters/uid"}]
+      responses:
+        "200": {$ref: "#/components/responses/OK"}
+        "409": {$ref: "#/components/responses/Conflict"}
+  /spaces/{id}/settings:
+    get:
+      tags: [spaces]
+      operationId: getSpaceSettings
+      summary: 库配置（price/sale/maintenance/stocktake 四开关；存储缺项视为开）
+      parameters: [{$ref: "#/components/parameters/id"}]
+      responses:
+        "200": {$ref: "#/components/responses/SpaceSettingsOK"}
+        "404": {$ref: "#/components/responses/NotFound"}
+    put:
+      tags: [spaces]
+      operationId: putSpaceSettings
+      summary: 整体替换四项开关（config_version 乐观锁，冲突 409）
+      parameters: [{$ref: "#/components/parameters/id"}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: "#/components/schemas/SpaceSettingsInput"}}}
+      responses:
+        "200": {$ref: "#/components/responses/SpaceSettingsOK"}
+        "422": {$ref: "#/components/responses/Unprocessable"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "409": {$ref: "#/components/responses/Conflict"}
+  /spaces/{id}/fields:
+    get:
+      tags: [spaces]
+      operationId: listSpaceFields
+      summary: 字段定义列表（按 sort, field_id 排序）
+      parameters: [{$ref: "#/components/parameters/id"}]
+      responses:
+        "200": {$ref: "#/components/responses/SpaceFieldList"}
+    post:
+      tags: [spaces]
+      operationId: createSpaceField
+      summary: 新增字段定义
+      parameters: [{$ref: "#/components/parameters/id"}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: "#/components/schemas/FieldDefInput"}}}
+      responses:
+        "201": {$ref: "#/components/responses/SpaceFieldOK"}
+        "422": {$ref: "#/components/responses/Unprocessable"}
+  /spaces/{id}/fields/{fieldId}:
+    patch:
+      tags: [spaces]
+      operationId: patchSpaceField
+      summary: 改字段定义（version 乐观锁；field_id 稳定不可变；路径里的 fid 非 uuid → 404）
+      parameters: [{$ref: "#/components/parameters/id"}, {$ref: "#/components/parameters/fieldId"}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: "#/components/schemas/FieldDefPatch"}}}
+      responses:
+        "200": {$ref: "#/components/responses/SpaceFieldOK"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+    delete:
+      tags: [spaces]
+      operationId: deleteSpaceField
+      summary: 删字段定义（路径里的 fid 非 uuid → 404，不是 500）
+      parameters: [{$ref: "#/components/parameters/id"}, {$ref: "#/components/parameters/fieldId"}]
+      responses:
+        "200": {$ref: "#/components/responses/OK"}
+        "404": {$ref: "#/components/responses/NotFound"}
+  /categories:
+    get:
+      tags: [categories]
+      summary: 分类树
+      responses:
+        "200": {$ref: "#/components/responses/NodeList"}
+    post:
+      tags: [categories]
+      summary: 建分类
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: "#/components/schemas/NodeInput"}}}
+      responses:
+        "201": {$ref: "#/components/responses/NodeOK"}
+  /categories/{id}:
+    get:
+      tags: [categories]
+      operationId: getCategory
+      summary: 分类详情（【未实现】服务端当前未注册 GET /categories/:id，客户端从 GET /categories 列表取）
+      x-klm-status: planned
+      parameters: [{$ref: "#/components/parameters/id"}]
+      responses:
+        "200": {$ref: "#/components/responses/NodeOK"}
+    patch:
+      tags: [categories]
+      summary: 改名/排序/移动（乐观锁）
+      parameters: [{$ref: "#/components/parameters/id"}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: "#/components/schemas/NodePatch"}}}
+      responses:
+        "200": {$ref: "#/components/responses/NodeOK"}
+    delete:
+      tags: [categories]
+      summary: 删分类（被物品引用时 409）
+      parameters: [{$ref: "#/components/parameters/id"}]
+      responses:
+        "200": {$ref: "#/components/responses/OK"}
+  /locations:
+    get:
+      tags: [locations]
+      operationId: listLocations
+      summary: 位置树（全局共享基础数据）
+      description: |
+        **单户 NAS 部署的设计选择**：位置树是全局共享基础数据，GET /locations 不按 actor 或库过滤，
+        登录用户看到的就是全部位置。这不是缺陷，不要当越权 bug 修；多户隔离时才需要按 space 过滤。
+        写路径引用位置时同样**只校验「存在且未删除」，不校验位置-库归属**（跨库复用同一位置是合法的）。
+        `space_id` 查询参数当前仅作客户端提示用途，不改变返回集合。
+      parameters: [{$ref: "#/components/parameters/spaceIdQ"}]
+      responses:
+        "200": {$ref: "#/components/responses/NodeList"}
+    post:
+      tags: [locations]
+      summary: 建位置（自动分配 10 位码）
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: "#/components/schemas/NodeInput"}}}
+      responses:
+        "201": {$ref: "#/components/responses/NodeOK"}
+  /locations/{id}:
+    get:
+      tags: [locations]
+      operationId: getLocation
+      summary: 位置详情（【未实现】服务端当前未注册 GET /locations/:id，客户端从 GET /locations 树取）
+      x-klm-status: planned
+      parameters: [{$ref: "#/components/parameters/id"}]
+      responses:
+        "200": {$ref: "#/components/responses/NodeOK"}
+    patch:
+      tags: [locations]
+      summary: 改名/排序/移动（乐观锁）
+      parameters: [{$ref: "#/components/parameters/id"}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: "#/components/schemas/NodePatch"}}}
+      responses:
+        "200": {$ref: "#/components/responses/NodeOK"}
+    delete:
+      tags: [locations]
+      summary: 删位置（有库存/盘点引用时 409）
+      parameters: [{$ref: "#/components/parameters/id"}]
+      responses:
+        "200": {$ref: "#/components/responses/OK"}
+  /items:
+    get:
+      tags: [items]
+      summary: 物品列表（可见库内过滤；status 服务端筛选）
+      parameters:
+        - {name: template_key, in: query, schema: {type: string}}
+        - {name: keyword, in: query, schema: {type: string}, description: 名称 ILIKE}
+        - name: status
+          in: query
+          description: |
+            派生状态筛选，逗号分隔多值（`status=in_stock,sold`，可重复同名参数）。
+            缺省或空串 = 全部。非法值 422 INVALID_STATUS，message 中列出合法枚举。
+            枚举即服务端派生的全部取值：in_stock/pending_stock/reserved/maintenance/sold/scrapped/lost
+            （优先规则，自上而下命中即止：lifecycle 非 normal 时直接取 lifecycle → sold/scrapped/lost；
+            有未结维修 maintenance；有预留 reserved；数量为 0 pending_stock；否则 in_stock）。
+          style: form
+          explode: true
+          schema:
+            type: array
+            items: {type: string, enum: [in_stock, pending_stock, reserved, maintenance, sold, scrapped, lost]}
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/pageSize"
+      description: |
+        列表只做筛选分页：**不返回 `allowed_actions` / `action_blocked_reasons`**（这两个字段只有
+        `GET /items/{id}` 与 `POST /items` 201 才有值，客户端不要在列表里读它们去做动作可用性判断）。
+        已知限制：不支持 `space_id` 过滤参数（传了会被静默忽略；成员本就可见全部可见库）。
+      responses:
+        "200":
+          description: |
+            过滤后的分页结果。`total` 必须是同一过滤条件下的总行数（不是当前页行数）。
+            data: {items: [Item], page, page_size, total}；items[*].allowed_actions 为 null
+          content: {application/json: {schema: {$ref: "#/components/schemas/Envelope"}}}
+        "422": {$ref: "#/components/responses/Unprocessable"}
+    post:
+      tags: [items]
+      summary: 建物品（模板校验扩展字段；一次请求含可选的期初入库）
+      description: |
+        建档与期初库存同一事务：要么都成功，要么都不留下。
+
+        - 传 `initial_location_id` 时，`initial_quantity` 缺省为 "1"；成功后 `data.quantity="1"`，
+          且 `GET /items/{id}/balances` 有一条 `on_hand=1` 的余额行。
+        - 不传 `initial_location_id`（可选，不是必填）时只建档案，`data.quantity="0"`、无余额行，
+          状态为待入库（`status="pending_stock"`）。客户端不要在建档成功后再补一次库存操作，
+          那会产生两次写入与第二个幂等键。
+        - 位置不存在或已删除 → 422 INVALID_LOCATION（位置是全局共享基础数据，本轮只校验「存在且未删除」，不校验位置-库归属）。整单回滚，不留 item/余额/流水。
+        - data 为 ItemView（id/public_code/quantity/location_id 等），并带 `allowed_actions` /
+          `action_blocked_reasons`（与详情同一套判定）。
+        - 幂等重放返回**相同状态码**（201 两次都是 201），靠响应体（同一个 id / `already_exists`）判重放，
+          不要靠状态码区分首次与重放。
+      parameters: [{$ref: "#/components/parameters/idemKey"}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: "#/components/schemas/ItemInput"}}}
+      responses:
+        "201": {$ref: "#/components/responses/ItemOK"}
+        "409": {$ref: "#/components/responses/Conflict"}
+        "422": {$ref: "#/components/responses/Unprocessable"}
+  /items/{id}:
+    get:
+      tags: [items]
+      summary: 物品详情（含位置路径、主图、聚合数量、动作可用性）
+      description: |
+        `data` 为 ItemView，并带 `allowed_actions`（键固定：
+        transfer,sale,scrap,maintenance,stocktake,photos,export）与
+        `action_blocked_reasons`（只包含 false 的键 → 中文原因）。
+        客户端只按这两个字段显示/禁用动作，不自行推导。
+      parameters: [{$ref: "#/components/parameters/id"}]
+      responses:
+        "200": {$ref: "#/components/responses/ItemOK"}
+        "404": {$ref: "#/components/responses/NotFound"}
+    put:
+      tags: [items]
+      summary: 更新物品（乐观锁 expected_version；字段整体合并）
+      parameters: [{$ref: "#/components/parameters/id"}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: "#/components/schemas/ItemUpdate"}}}
+      responses:
+        "200": {$ref: "#/components/responses/ItemOK"}
+        "409": {$ref: "#/components/responses/Conflict"}
+    delete:
+      tags: [items]
+      summary: 删物品（有在手库存时 409）
+      parameters: [{$ref: "#/components/parameters/id"}]
+      responses:
+        "200": {$ref: "#/components/responses/OK"}
+  /items/{id}/transfer-preview:
+    post:
+      tags: [items]
+      operationId: transferPreviewItem
+      summary: 转库预演（干跑，不落库；返回警告列表）
+      parameters: [{$ref: "#/components/parameters/id"}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: "#/components/schemas/TransferInput"}}}
+      responses:
+        "200": {$ref: "#/components/responses/TransferPreviewOK"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+  /items/{id}/transfer:
+    post:
+      tags: [items]
+      operationId: transferItem
+      summary: 转库（档案与在手库存整体移至目标库；expected_version 乐观锁；幂等）
+      description: |
+        - 目标库与当前库相同 → 422 INVALID_TRANSFER_TARGET，message「目标库与当前库相同，库内移位请用库存移动」。
+        - 目标位置不存在 → 404 NOT_FOUND「目标位置不存在」。
+        - 物品维修中或已终态 → 409 OPEN_BUSINESS。
+      parameters: [{$ref: "#/components/parameters/id"}, {$ref: "#/components/parameters/idemKey"}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: "#/components/schemas/TransferInput"}}}
+      responses:
+        "200": {$ref: "#/components/responses/ItemOK"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+        "422": {$ref: "#/components/responses/Unprocessable"}
+  /items/{id}/sale:
+    post:
+      tags: [items]
+      operationId: sellItem
+      summary: 出售（出库+流水+lifecycle=sold+售卖留痕同事务；幂等；库关闭出售时 403）
+      parameters: [{$ref: "#/components/parameters/id"}, {$ref: "#/components/parameters/idemKey"}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: "#/components/schemas/ItemSaleInput"}}}
+      responses:
+        "200": {$ref: "#/components/responses/ItemOK"}
+        "403": {$ref: "#/components/responses/FeatureDisabled"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+  /items/{id}/reverse:
+    post:
+      tags: [items]
+      operationId: reverseItemSale
+      summary: 出售纠错（lifecycle 回 normal+原位置入库+流水 correction；幂等）
+      parameters: [{$ref: "#/components/parameters/id"}, {$ref: "#/components/parameters/idemKey"}]
+      responses:
+        "200": {$ref: "#/components/responses/ItemOK"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+  /items/{id}/for-sale:
+    put:
+      tags: [items]
+      operationId: setItemForSale
+      summary: 待售标记（档案层面 for_sale 开关，不动库存）
+      parameters: [{$ref: "#/components/parameters/id"}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, required: [for_sale], properties: {for_sale: {type: boolean}}}}}
+      responses:
+        "200": {$ref: "#/components/responses/ItemOK"}
+        "403": {$ref: "#/components/responses/FeatureDisabled"}
+        "404": {$ref: "#/components/responses/NotFound"}
+  /items/{id}/maintenance:
+    post:
+      tags: [items]
+      operationId: startItemMaintenance
+      summary: 送修（不搬库存；一件至多一条未结维修，重复 409）
+      parameters: [{$ref: "#/components/parameters/id"}, {$ref: "#/components/parameters/idemKey"}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, required: [reason], properties: {reason: {type: string, maxLength: 200}, note: {type: string, maxLength: 500}}}}}
+      responses:
+        "201": {$ref: "#/components/responses/MaintenanceOK"}
+        "403": {$ref: "#/components/responses/FeatureDisabled"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+    get:
+      tags: [items]
+      operationId: listItemMaintenance
+      summary: 维修记录（按开单时间倒序）
+      parameters: [{$ref: "#/components/parameters/id"}]
+      responses:
+        "200": {$ref: "#/components/responses/MaintenanceList"}
+  /items/{id}/maintenance/close:
+    post:
+      tags: [items]
+      operationId: closeItemMaintenance
+      summary: 结束维修（无未结维修 409；库关闭维修时 403）
+      parameters: [{$ref: "#/components/parameters/id"}, {$ref: "#/components/parameters/idemKey"}]
+      responses:
+        "200": {$ref: "#/components/responses/MaintenanceOK"}
+        "403": {$ref: "#/components/responses/FeatureDisabled"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+  /items/{id}/duplicate-hints:
+    get:
+      tags: [items]
+      operationId: itemDuplicateHints
+      summary: 疑似重复候选（同库未删档案中同名或序列号字段相同者）
+      parameters: [{$ref: "#/components/parameters/id"}]
+      responses:
+        "200": {$ref: "#/components/responses/DuplicateHintList"}
+  /dedup/preview:
+    post:
+      tags: [items]
+      operationId: dedupPreview
+      summary: 合并预览（不落库，返回合并后档案视图）
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: "#/components/schemas/MergeInput"}}}
+      responses:
+        "200": {$ref: "#/components/responses/ItemOK"}
+        "422": {$ref: "#/components/responses/Unprocessable"}
+  /dedup/merge:
+    post:
+      tags: [items]
+      operationId: dedupMerge
+      summary: 合并档案（1-5 个源并入保留档案，凭证/照片/流水归并；幂等）
+      parameters: [{$ref: "#/components/parameters/idemKey"}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: "#/components/schemas/MergeInput"}}}
+      responses:
+        "200": {$ref: "#/components/responses/ItemOK"}
+        "422": {$ref: "#/components/responses/Unprocessable"}
+        "409": {$ref: "#/components/responses/Conflict"}
+  /items/{id}/balances:
+    get:
+      tags: [inventory]
+      summary: 分位置余额（on_hand/reserved）
+      parameters: [{$ref: "#/components/parameters/id"}]
+      responses:
+        "200": {$ref: "#/components/responses/BalanceList"}
+  /items/{id}/photos:
+    get:
+      tags: [photos]
+      operationId: listItemPhotos
+      summary: 物品照片列表（按 sort 升序；无照片返回空数组）
+      description: |
+        补齐「照片组只有写接口、刷新后拿不到全量照片」的缺口（android 做面板时发现）。
+        - 按 `sort` 升序返回，`is_primary` 恰好一条为 true（有照片时）。
+        - 无照片返回 `{"data":{"photos":[]}}`，**不是 null**（列表一律给数组）。
+        - 非该库成员 → 404（与列表/详情一致，不泄露存在性）。
+      parameters: [{$ref: "#/components/parameters/id"}]
+      responses:
+        "200": {$ref: "#/components/responses/PhotoListOK"}
+        "404": {$ref: "#/components/responses/NotFound"}
+    post:
+      tags: [photos]
+      operationId: linkItemPhotos
+      summary: 关联照片（上传先落私有文件，关联成功才给库归属；同一文件已挂别处 409）
+      description: |
+        - 本组照片接口**不要求也不使用 Idempotency-Key**：关联/解除/排序/设主图都是天然幂等或整体替换语义，
+          重复提交结果一致。
+        - file_ids 必须是本人已上传的私有文件（POST /files 的返回值）；服务端在关联时校验归属与目标库权限。
+        - primary_file_id 缺省取本次第一张；只允许出现在 file_ids 里。
+        - 同一 file_id 已关联到别的物品 → 409 PHOTO_ALREADY_LINKED，不静默改挂。
+        - 别人的私有文件、或文件不属于该库 → 403 `FORBIDDEN`「文件不属于该库」（照片链路只用这一种 403 码）。
+        - 入参本身不合法（空 file_ids、primary_file_id 不在 file_ids 里、文件 ID 格式错）→ 422 `VALIDATION_FAILED`。
+        - 失败不留半关联，已上传但不归属的文件要么删除要么进入可追踪回收。
+        - 响应 data: {photos: [PhotoRef]}，按 sort 升序，恰好一条 is_primary=true。
+      parameters: [{$ref: "#/components/parameters/id"}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: "#/components/schemas/PhotoLinkInput"}}}
+      responses:
+        "200": {$ref: "#/components/responses/PhotoListOK"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+  /items/{id}/photos/order:
+    put:
+      tags: [photos]
+      operationId: reorderItemPhotos
+      summary: 照片排序（file_ids 必须是该物品现有照片的完整集合）
+      description: 全量提交；缺项/多项/不属于该物品 → 422 VALIDATION_FAILED，不部分应用。
+      parameters: [{$ref: "#/components/parameters/id"}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: "#/components/schemas/PhotoOrderInput"}}}
+      responses:
+        "200": {$ref: "#/components/responses/PhotoListOK"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "422": {$ref: "#/components/responses/Unprocessable"}
+  /items/{id}/photos/{fileId}:
+    delete:
+      tags: [photos]
+      operationId: unlinkItemPhoto
+      summary: 解除照片关联（不删文件本身；删掉主图后由服务端指定下一张为主图）
+      parameters: [{$ref: "#/components/parameters/id"}, {$ref: "#/components/parameters/fileId"}]
+      responses:
+        "200": {$ref: "#/components/responses/PhotoListOK"}
+        "404": {$ref: "#/components/responses/NotFound"}
+  /items/{id}/photos/{fileId}/primary:
+    put:
+      tags: [photos]
+      operationId: setItemPrimaryPhoto
+      summary: 设为主图（主图唯一，is_primary 单条）
+      parameters: [{$ref: "#/components/parameters/id"}, {$ref: "#/components/parameters/fileId"}]
+      responses:
+        "200": {$ref: "#/components/responses/PhotoListOK"}
+        "404": {$ref: "#/components/responses/NotFound"}
+  /files:
+    get:
+      tags: [files]
+      summary: 文件列表
+      parameters: [{$ref: "#/components/parameters/page"}, {$ref: "#/components/parameters/pageSize"}]
+      responses:
+        "200": {$ref: "#/components/responses/FileList"}
+    post:
+      tags: [files]
+      summary: 上传文件（multipart 字段 file）
+      requestBody:
+        required: true
+        content: {multipart/form-data: {schema: {type: object, properties: {file: {type: string, format: binary}}}}}
+      responses:
+        "201": {$ref: "#/components/responses/FileOK"}
+  /files/{id}:
+    delete:
+      tags: [files]
+      operationId: deleteFile
+      summary: 删除未关联文件（仅上传者本人；失败任务/放弃先上传的清理路径）
+      description: |
+        - 只有上传者本人能删，且文件必须**未关联任何记录**（物品照片、AI 任务图片、导入附件等）。
+        - 已关联 → 409 FILE_IN_USE，不静默解绑。
+        - 非上传者 → 404（不泄露存在性，与「看不到就是不存在」一致）。
+        - 204 无响应体。
+      parameters: [{$ref: "#/components/parameters/id"}]
+      responses:
+        "204": {description: 已删除}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+  /files/{id}/content:
+    get:
+      tags: [files]
+      summary: 授权下载（attachment）
+      parameters: [{$ref: "#/components/parameters/id"}]
+      responses:
+        "200": {description: 文件字节流}
+  /files/{id}/thumbnail:
+    get:
+      tags: [files]
+      summary: "缩略图（当前返回原图，响应头 X-Thumbnail: original）"
+      parameters: [{$ref: "#/components/parameters/id"}]
+      responses:
+        "200": {description: 图片字节流}
+  /files/{id}/preview:
+    get:
+      tags: [files]
+      operationId: getFilePreview
+      summary: "预览图（1600px 变体，无则降级原图）"
+      parameters: [{$ref: "#/components/parameters/id"}]
+      responses:
+        "200": {description: 图片字节流}
+  /inventory/operations:
+    post:
+      tags: [inventory]
+      summary: 库存操作（幂等；Idempotency-Key 头）
+      parameters: [{$ref: "#/components/parameters/idemKey"}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/StockOp"}
+            example: {item_id: uuid, kind: replenish, location_id: uuid, quantity: "3"}
+      responses:
+        "201": {$ref: "#/components/responses/OperationOK"}
+        "422": {$ref: "#/components/responses/Unprocessable"}
+        "409":
+          description: 幂等冲突（同 key 不同内容）或库存不足
+          content: {application/json: {schema: {$ref: "#/components/schemas/Envelope"}}}
+  /operations/{id}:
+    get:
+      tags: [inventory]
+      operationId: getInventoryOperation
+      summary: 单笔库存流水（按流水 ID 查询；本人有权访问的物品）
+      parameters: [{$ref: "#/components/parameters/id"}]
+      responses:
+        "200": {$ref: "#/components/responses/OperationOK"}
+        "404": {$ref: "#/components/responses/NotFound"}
+  /operation-results/{operationId}:
+    get:
+      tags: [operations]
+      operationId: getOperationResult
+      summary: 按客户端 operation_id 恢复写操作结果（响应丢失后核实，不重新提交）
+      description: |
+        客户端把同一个 UUID 既当 Idempotency-Key 又当 operation_id。业务已提交但响应丢失时，
+        用本接口取回终态与业务结果，不要换新键重提。
+
+        - 只返回当前 actor 自己的操作；别人的或未知的 operation_id 一律 404（不区分「不存在」与「无权」）。
+        - status 为 `in_progress` 表示服务端仍在处理或占位未落终态：客户端继续轮询/等待，不得当作失败重试新键。
+        - status 为 `succeeded` 时 `result` 是原响应 data 的快照。**但 succeeded 只代表「请求已被完整处理
+          并留下结果」，不代表业务成功**：AI 识别失败时 `POST /ai/tasks` 仍返回 202 且 `data.task.state="failed"`，
+          幂等记录记为 succeeded。客户端必须再看 `result.task.state`（AI 任务）或 `result` 内容本身。
+        - operation status 是传输层，`task.state` 是业务层，二者不可互相推导。
+        - status 为 `failed` 时 `error_code` 必须**等于当时那次失败响应的 `error.code`**（源头上就是同一个值，
+          客户端可按它做分支）。若两者不一致属于服务端缺陷：曾有把确认失败错记成 `OPEN_BUSINESS` 的问题。
+          重试决策：客户端据此决定是否用**新键**重开一次。
+      parameters:
+        - {name: operationId, in: path, required: true, schema: {type: string, format: uuid}}
+      responses:
+        "200": {$ref: "#/components/responses/OperationResultOK"}
+        "404": {$ref: "#/components/responses/NotFound"}
+  /stocktakes:
+    get:
+      tags: [stocktakes]
+      summary: 盘点列表
+      parameters:
+        - {name: space_id, in: query, schema: {type: string}}
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/pageSize"
+      responses:
+        "200": {$ref: "#/components/responses/StocktakeList"}
+    post:
+      tags: [stocktakes]
+      summary: 建 draft 盘点（expected 取实时余额快照；库关闭盘点时 403）
+      parameters: [{$ref: "#/components/parameters/idemKey"}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: "#/components/schemas/StocktakeInput"}}}
+      responses:
+        "201": {$ref: "#/components/responses/StocktakeOK"}
+        "403": {$ref: "#/components/responses/FeatureDisabled"}
+  /stocktakes/{id}:
+    get:
+      tags: [stocktakes]
+      summary: 盘点详情（含行与差异）
+      parameters: [{$ref: "#/components/parameters/id"}]
+      responses:
+        "200": {$ref: "#/components/responses/StocktakeOK"}
+  /stocktakes/{id}/confirm:
+    post:
+      tags: [stocktakes]
+      summary: 确认盘点（差异行 correction 同事务调账；库关闭盘点时 403）
+      parameters: [{$ref: "#/components/parameters/id"}, {$ref: "#/components/parameters/idemKey"}]
+      responses:
+        "200": {$ref: "#/components/responses/StocktakeOK"}
+        "403": {$ref: "#/components/responses/FeatureDisabled"}
+        "409": {$ref: "#/components/responses/Conflict"}
+  /recycle:
+    get:
+      tags: [recycle]
+      operationId: recycleSummary
+      summary: 回收站汇总（可见范围内已删物品数；管理员另含库数）
+      responses:
+        "200": {$ref: "#/components/responses/RecycleSummaryOK"}
+  /recycle/items:
+    get:
+      tags: [recycle]
+      operationId: listRecycleItems
+      summary: 回收站物品列表（可见范围，按删除时间倒序；保留期 30 天）
+      parameters: [{$ref: "#/components/parameters/page"}, {$ref: "#/components/parameters/pageSize"}]
+      responses:
+        "200": {$ref: "#/components/responses/RecycleItemList"}
+  /recycle/items/{id}/restore:
+    post:
+      tags: [recycle]
+      operationId: restoreRecycleItem
+      summary: 恢复物品（30 天保留期内；所属库也在回收站时 409）
+      parameters: [{$ref: "#/components/parameters/id"}]
+      responses:
+        "200": {$ref: "#/components/responses/OK"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+  /recycle/items/{id}:
+    delete:
+      tags: [recycle]
+      operationId: purgeRecycleItem
+      summary: 彻底删除（仅过 30 天保留期后可调，提前 409）
+      parameters: [{$ref: "#/components/parameters/id"}]
+      responses:
+        "200": {$ref: "#/components/responses/OK"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+  /loans:
+    get:
+      tags: [loans]
+      deprecated: true
+      x-klm-status: planned
+      summary: 借出列表（未开放：该路由未注册，调用返回 404）
+      parameters:
+        - {name: item_id, in: query, schema: {type: string}}
+        - {name: status, in: query, schema: {type: string, enum: [out, returned]}}
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/pageSize"
+      responses:
+        "200": {$ref: "#/components/responses/LoanList"}
+    post:
+      tags: [loans]
+      deprecated: true
+      x-klm-status: planned
+      summary: 借出（loan_out 出库+凭证同事务；未挂载，调用必 404）
+      parameters: [{$ref: "#/components/parameters/idemKey"}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: "#/components/schemas/LoanInput"}}}
+      responses:
+        "201": {$ref: "#/components/responses/LoanOK"}
+        "409": {$ref: "#/components/responses/Conflict"}
+  /loans/{id}/return:
+    post:
+      tags: [loans]
+      deprecated: true
+      x-klm-status: planned
+      summary: 整单归还（loan_return 入库；重复归还 409；未挂载，调用必 404）
+      parameters: [{$ref: "#/components/parameters/id"}, {$ref: "#/components/parameters/idemKey"}]
+      requestBody:
+        content: {application/json: {schema: {type: object, properties: {location_id: {type: string}}}}}
+      responses:
+        "200": {$ref: "#/components/responses/LoanOK"}
+  /sales:
+    get:
+      tags: [sales]
+      deprecated: true
+      x-klm-status: planned
+      summary: 售卖列表（未开放：出售走 /items/{id}/sale，调用返回 404）
+      parameters:
+        - {name: item_id, in: query, schema: {type: string}}
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/pageSize"
+      responses:
+        "200": {$ref: "#/components/responses/SaleList"}
+    post:
+      tags: [sales]
+      deprecated: true
+      x-klm-status: planned
+      summary: 售卖（sale_deliver 一步预占释放+出库；未挂载，调用必 404）
+      parameters: [{$ref: "#/components/parameters/idemKey"}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: "#/components/schemas/SaleInput"}}}
+      responses:
+        "201": {$ref: "#/components/responses/SaleOK"}
+  /jobs:
+    get:
+      tags: [jobs]
+      x-klm-status: internal
+      summary: 任务列表（内部队列，不对客户端承诺）
+      description: |
+        内部任务队列的排查入口：web 与 android 均无任何 /jobs 调用，客户端不得依赖。`POST /jobs` 是内部入口。
+        **当前实现（已收口）**：列表**仅实例管理员**（server/internal/jobs/router.go:71），非管理员 403
+        「仅实例管理员可查看任务队列」；`POST /jobs` 是内部入口。
+        `GET /jobs/{id}` **未注册且不新增**（web/android 全仓无调用；凭空加一个读全实例任务的接口是负收益）。
+      parameters:
+        - {name: status, in: query, schema: {type: string, enum: [queued, running, succeeded, failed]}}
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/pageSize"
+      responses:
+        "200": {$ref: "#/components/responses/JobList"}
+    post:
+      tags: [jobs]
+      summary: 入队任务（内部队列，不对客户端承诺）
+      x-klm-status: internal
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, required: [kind], properties: {kind: {type: string}, payload: {}, run_at: {type: string, format: date-time}}}}}
+      responses:
+        "202": {$ref: "#/components/responses/JobOK"}
+  /audit:
+    get:
+      tags: [audit]
+      summary: 审计日志（管理员）
+      parameters:
+        - {name: action, in: query, schema: {type: string}}
+        - {name: object_type, in: query, schema: {type: string}}
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/pageSize"
+      responses:
+        "200": {$ref: "#/components/responses/AuditList"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+  /templates:
+    get:
+      tags: [templates]
+      security: []
+      summary: 内置模板清单
+      responses:
+        "200": {$ref: "#/components/responses/TemplateList"}
+  /templates/operations:
+    get:
+      tags: [templates]
+      operationId: listTemplateOperations
+      summary: 模板操作清单（各模板可用操作与所需字段）
+      responses:
+        "200": {$ref: "#/components/responses/OK"}
+  /templates/{key}:
+    get:
+      tags: [templates]
+      security: []
+      summary: 模板清单详情（字段/列/筛选/操作）
+      parameters: [{name: key, in: path, required: true, schema: {type: string}}]
+      responses:
+        "200": {$ref: "#/components/responses/TemplateOK"}
+        "404": {$ref: "#/components/responses/NotFound"}
+  /templates/{key}/resolve:
+    post:
+      tags: [templates]
+      summary: 字段解析（模板字段取值归一与校验）
+      parameters: [{name: key, in: path, required: true, schema: {type: string}}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object}}}
+      responses:
+        "200": {$ref: "#/components/responses/OK"}
+  /templates/{key}/readonly:
+    post:
+      tags: [templates]
+      summary: 只读字段解析（派生展示列）
+      parameters: [{name: key, in: path, required: true, schema: {type: string}}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object}}}
+      responses:
+        "200": {$ref: "#/components/responses/OK"}
+  /labels/layouts:
+    get:
+      tags: [labels]
+      summary: 标签版式预设（含 A4 默认与静区参数）
+      responses:
+        "200": {$ref: "#/components/responses/OK"}
+  /labels/render:
+    post:
+      tags: [labels]
+      summary: 渲染标签 PDF
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: "#/components/schemas/LabelRender"}}}
+      responses:
+        "200": {description: application/pdf 字节流}
+        "422": {$ref: "#/components/responses/Unprocessable"}
+  /labels/jobs:
+    post:
+      tags: [labels]
+      summary: 建打印任务
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: "#/components/schemas/LabelRender"}}}
+      responses:
+        "201": {$ref: "#/components/responses/OK"}
+  /labels/jobs/{id}/print:
+    post:
+      tags: [labels]
+      summary: 标记打印（路径 :id 是**文件 ID**；非 uuid → 404；为空时才读 body.file_id）
+      description: |
+        - 路径 `:id` 传的是打印任务产出的**文件 id**。非 uuid → **404 NOT_FOUND**（不再是 SQLSTATE 500）。
+        - **路径 id 优先**：只要路径里有 id 就用它，body 的 `file_id` 被忽略（服务端实现如此；
+          因此「body file_id 非法 → 422」这条分支在当前路由下不可达，客户端不要依赖它）。
+          未知文件 id → **404 NOT_FOUND**。
+        - 注意 `POST /labels/render` **不接收 file_id**（它返回 PDF 字节），别混用。
+      parameters: [{$ref: "#/components/parameters/id"}]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                file_id: {type: string, format: uuid, description: 仅当路径 id 为空时使用}
+      responses:
+        "200": {$ref: "#/components/responses/OK"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "422": {$ref: "#/components/responses/Unprocessable"}
+  /labels/reprint:
+    post:
+      tags: [labels]
+      summary: 重打（按对象补标签）
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object}}}
+      responses:
+        "200": {description: application/pdf 字节流}
+  /labels/transports:
+    get:
+      tags: [labels]
+      summary: 打印传输方式清单
+      responses:
+        "200": {$ref: "#/components/responses/OK"}
+  /codes/resolve:
+    get:
+      tags: [codes]
+      operationId: resolveCode
+      summary: 扫码解析（二维码 payload / 短码 / 公开码 → 对象引用；不是编码时明确告知）
+      description: |
+        三种输入都要能处理：完整二维码 payload（`KLM1:...`）、手工输入的短码或公开码（含 0/O、1/I/L 混淆）、
+        普通搜索词。
+        - `200` + `is_code=false`：输入不是编码（此时没有 `resolved`）→ 客户端应提示「这不是物品编码，请用搜索」，
+          **不要**提示「无权访问」。
+        - `200` + `is_code=true` + `resolved=null`：是编码但当前用户不可见 → 同样不泄露存在性，**不用 404**。
+        - `200` + `is_code=true` + `resolved` 有值：物品码读 `resolved.item_id` 直接进详情，其余按 `resolved.page_url` 跳转。
+          `kind=location` 的 `space_id` 为空、`page_url` 固定 `/bases`（位置是实例级目录，与 `GET /locations` 同口径）。
+        位置码未命中或位置已软删 → 仍 `200 + resolved=null`，与物品码同口径（不 404、不泄露存在性）。
+        对象不存在 / 已删除 / 当前用户不可见 → 一律 `200` + `resolved=null`（不 404、不泄露存在性）。
+      parameters:
+        - {name: value, in: query, required: true, schema: {type: string}, example: "KLM1:AB12CD34EF56:I:0123CD56AB"}
+      responses:
+        "200": {$ref: "#/components/responses/CodeResolveOK"}
+        "422":
+          description: 缺少 `value` 参数（422 VALIDATION_FAILED）；编码格式本身不合法时也是 422
+          content: {application/json: {schema: {$ref: "#/components/schemas/ApiError"}}}
+  /spaces/{id}/rules:
+    post:
+      tags: [rules]
+      operationId: createSpaceRule
+      summary: 新建库规则（触发器+动作列表）
+      parameters: [{$ref: "#/components/parameters/id"}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: "#/components/schemas/RuleInput"}}}
+      responses:
+        "201": {$ref: "#/components/responses/RuleOK"}
+        "422": {$ref: "#/components/responses/Unprocessable"}
+    get:
+      tags: [rules]
+      operationId: listSpaceRules
+      summary: 库规则列表
+      parameters: [{$ref: "#/components/parameters/id"}]
+      responses:
+        "200": {$ref: "#/components/responses/RuleList"}
+  /rules/{ruleId}:
+    patch:
+      tags: [rules]
+      operationId: patchRule
+      summary: 改规则（version 乐观锁）
+      parameters: [{$ref: "#/components/parameters/ruleId"}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: "#/components/schemas/RuleInput"}}}
+      responses:
+        "200": {$ref: "#/components/responses/RuleOK"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+    delete:
+      tags: [rules]
+      operationId: deleteRule
+      summary: 删规则
+      parameters: [{$ref: "#/components/parameters/ruleId"}]
+      responses:
+        "200": {$ref: "#/components/responses/OK"}
+        "404": {$ref: "#/components/responses/NotFound"}
+  /rule-runs/{runId}:
+    get:
+      tags: [rules]
+      operationId: getRuleRun
+      summary: 规则运行详情（含逐步执行记录）
+      parameters: [{$ref: "#/components/parameters/runId"}]
+      responses:
+        "200": {$ref: "#/components/responses/RuleRunOK"}
+        "404": {$ref: "#/components/responses/NotFound"}
+  /rule-runs/{runId}/undo:
+    post:
+      tags: [rules]
+      operationId: undoRuleRun
+      summary: 撤回运行（反向回写字段/调账；不可撤回 409）
+      parameters: [{$ref: "#/components/parameters/runId"}]
+      responses:
+        "200": {$ref: "#/components/responses/RuleRunOK"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+  /inbox:
+    get:
+      tags: [rules]
+      operationId: listInbox
+      summary: 站内收件箱（最近 100 条+未读数）
+      responses:
+        "200": {$ref: "#/components/responses/InboxList"}
+  /inbox/{messageId}/read:
+    post:
+      tags: [rules]
+      operationId: readInboxMessage
+      summary: 标记消息已读（重放幂等成功；非本人消息 404）
+      parameters: [{$ref: "#/components/parameters/messageId"}]
+      responses:
+        "200": {$ref: "#/components/responses/OK"}
+        "404": {$ref: "#/components/responses/NotFound"}
+  /imports:
+    post:
+      tags: [transfer]
+      operationId: createImport
+      summary: 上传表格建 draft 批次（仅导入目录 / 直接入库二选一）
+      description: |
+        `mode` 决定这一批的处理方式，确认时不再二次询问：
+        - `catalog`：只建档案（不产生库存）。`location_id` 忽略。
+        - `stock`：建档案并同事务入库。**必须带 `location_id`**：缺位置 → 422 INVALID_LOCATION「直接入库必须选择位置」；
+          位置不存在/不可用 → 422 INVALID_LOCATION「位置不存在或不可用，请重新选择」。`mode` 不是这两个值 → 422 VALIDATION_FAILED。
+          行内可选位置是后续扩展，本版以批次级 location_id 为准。
+
+        限制（与后端常量同一组数字，客户端文案不要另造）：multipart 文件本体 ≤ 10MB（超出 413 FILE_TOO_LARGE）、
+        单批数据行 ≤ 1000（超出 422 VALIDATION_FAILED）。CSV 或 XLSX（只读第一张表）。
+
+        幂等（本接口**不保证幂等**，客户端照此实现）：中间件摘要覆盖**原始 multipart 字节**，每次上传 boundary 随机，
+        同键再次上传会被判「同键异内容」→ 409 IDEMPOTENCY_CONFLICT。所以：
+
+        - **不要复用 Idempotency-Key**：每次上传用新键（或干脆不带）。
+        - 上传失败 / 响应丢失 → **直接重传**；可能留下一个 `draft` 批次（不建物品、不写账、可弃置，无害）。
+        - **真正的幂等边界是 `POST /imports/{id}/confirm`**（批次 id 拿到后，同键重试才会重放原响应）。
+        - `client_ref` **planned：服务端未实现，传入被忽略**，不要在客户端依赖它去重。
+      parameters: [{$ref: "#/components/parameters/idemKey"}]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [space_id, mode]
+              properties:
+                file: {type: string, format: binary}
+                file_id: {type: string, description: "规划中，未实现；默认用 file 上传"}
+                space_id: {type: string}
+                mode: {type: string, enum: [catalog, stock], default: catalog}
+                location_id: {type: string, description: "mode=stock 必填"}
+                template_key: {type: string, description: 缺省用库默认模板}
+                client_ref: {type: string, x-klm-status: planned, description: "planned：服务端未实现、传入会被忽略。去重请依赖 confirm 阶段的 Idempotency-Key"}
+      responses:
+        "201": {$ref: "#/components/responses/ImportOK"}
+        "413": {$ref: "#/components/responses/PayloadTooLarge"}
+        "422": {$ref: "#/components/responses/Unprocessable"}
+  /imports/{id}:
+    get:
+      tags: [transfer]
+      summary: 批次详情与逐行结果
+      parameters: [{$ref: "#/components/parameters/id"}]
+      responses:
+        "200": {$ref: "#/components/responses/ImportOK"}
+  /imports/{id}/confirm:
+    post:
+      tags: [transfer]
+      summary: 逐行建物品（每行独立事务；重跑只补 pending/failed 行，不重复建档）
+      description: |
+        确认阶段**只使用批次创建时固定的 `mode` 与 `location_id`**，不接受第二个位置（防「预览目录、确认入库」漂移）。
+        - `draft` → 逐行执行；行级独立事务，成功行不重复、失败行保留 `failed`。
+        - `done` 且仍有 `failed` 行 → 允许再次确认，**只重跑 pending/failed 行**（成功行不重复写账）。
+        - **行失败通常是 payload 校验失败**（如名称为空）：服务端**没有修改行 payload 的接口**，
+          所以重跑同一批次只对瞬时失败（如并发/超时）有意义，`ok`/`failed` 计数不变；
+          要修正内容必须**重新上传生成新批次**。不要把「重试」理解成行级编辑。
+        - 已全部成功再确认 → **409 OPEN_BUSINESS**（不是幂等冲突；重放同一 Idempotency-Key 才走幂等重放）。
+      parameters: [{$ref: "#/components/parameters/id"}, {$ref: "#/components/parameters/idemKey"}]
+      requestBody:
+        content: {application/json: {schema: {type: object, properties: {mapping: {type: object, additionalProperties: {type: string}}}}}}
+      responses:
+        "200": {$ref: "#/components/responses/ImportOK"}
+        "409":
+          description: 批次已完成且无失败行（OPEN_BUSINESS）；同键重放走幂等重放不在此列
+          content: {application/json: {schema: {$ref: "#/components/schemas/ApiError"}}}
+  /exports:
+    post:
+      tags: [transfer]
+      operationId: createExport
+      summary: 发起物品导出（同步生成 CSV，返回导出记录，去下载中心取文件）
+      requestBody:
+        content: {application/json: {schema: {type: object, properties: {template_key: {type: string}, keyword: {type: string}}}}}
+      responses:
+        "201": {$ref: "#/components/responses/ExportOK"}
+        "422": {$ref: "#/components/responses/Unprocessable"}
+    get:
+      tags: [transfer]
+      operationId: listExports
+      summary: 下载中心列表（本人的导出记录，倒序）
+      responses:
+        "200": {$ref: "#/components/responses/ExportList"}
+  /exports/{id}:
+    delete:
+      tags: [transfer]
+      operationId: deleteExport
+      summary: 删除导出记录与已生成文件
+      parameters: [{$ref: "#/components/parameters/id"}]
+      responses:
+        "200": {$ref: "#/components/responses/OK"}
+        "404": {$ref: "#/components/responses/NotFound"}
+  /exports/{id}/download:
+    get:
+      tags: [transfer]
+      operationId: downloadExport
+      summary: 下载导出文件（text/csv; charset=utf-8 附件，UTF-8 BOM）
+      parameters: [{$ref: "#/components/parameters/id"}]
+      responses:
+        "200":
+          description: text/csv 附件
+          headers: {Content-Disposition: {schema: {type: string}}}
+        "404": {$ref: "#/components/responses/NotFound"}
+  /ai/settings:
+    get:
+      tags: [ai]
+      summary: AI 设置（脱敏）
+      responses:
+        "200": {$ref: "#/components/responses/OK"}
+    put:
+      tags: [ai]
+      summary: 保存 AI 设置（管理员）
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object}}}
+      responses:
+        "200": {$ref: "#/components/responses/OK"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+  /ai/settings/test:
+    post:
+      tags: [ai]
+      summary: 连通性测试（管理员）
+      responses:
+        "200": {$ref: "#/components/responses/OK"}
+  /ai/tasks:
+    post:
+      tags: [ai]
+      operationId: createAiTask
+      summary: 识别任务（服务端同步执行，完成后响应里带候选）
+      description: |
+        图片数量上限由 AI 设置 `max_images` 决定：默认 8，可配 1..32（超范围按边界夹取），超限 422。
+        服务端同步执行识别。**识别失败也返回 202**：`data.task.state="failed"`、`candidates: []`，
+        错误在任务里而不是 HTTP 层（例如 file_id 不存在）。因此本接口的幂等记录会记为 succeeded 而业务是失败，
+        客户端必须判 `task.state`，不能只看 HTTP 状态或 operation status。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [space_id, file_ids]
+              additionalProperties: false
+              properties:
+                space_id: {type: string}
+                item_id: {type: string, description: 对已存在物品补充识别}
+                file_ids: {type: array, maxItems: 32, items: {type: string}}
+                template_key: {type: string}
+                object_hint: {type: string}
+                category_id: {type: string}
+                location_id: {type: string}
+      responses:
+        "202":
+          description: |
+            任务已处理（同步）：`data.task.state` 为 `succeeded|failed`，failed 时 `candidates` 为空，
+            **不代表请求失败**（HTTP 202、幂等记录 succeeded，业务成败看 task.state）。响应体见 AiTaskResult。
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {description: AI 未配置或未启用（OPEN_BUSINESS）, content: {application/json: {schema: {$ref: "#/components/schemas/ApiError"}}}}
+        "422":
+          description: |
+            422 INVALID_IMAGE_COUNT：`file_ids` 数量超过 `max_images`（server/internal/ai/service.go:223
+            `httpx.New(422, CodeInvalidImageCount, "图片数量超过上限 N")`）。与其他参数类校验一致用 422。
+          content: {application/json: {schema: {$ref: "#/components/schemas/ApiError"}}}
+  /ai/tasks/{id}:
+    get:
+      tags: [ai]
+      summary: 任务与候选
+      parameters: [{$ref: "#/components/parameters/id"}]
+      responses:
+        "200": {$ref: "#/components/responses/OK"}
+  /ai/candidates/{id}/confirm:
+    post:
+      tags: [ai]
+      summary: 确认候选建物品（钉死一版字段，同事务；同一候选重复确认 409）
+      description: |
+        确认时的字段快照：客户端把候选里已编辑好的值一次提交，服务端按这份值建档，
+        不再回读候选的历史识别结果（避免「用户改了但确认后没生效」）。
+        operation_id 不是 body 字段：取 `Idempotency-Key` 请求头，同值用于 GET /operation-results/{id} 恢复。
+        - `name` 缺失时用候选名称；`quantity` 缺省 "1"。
+        - `location_id` 可空：为空 → 只建 0 库存档案（待入库）；传了但位置不存在 → 422 INVALID_LOCATION。
+        - 照片语义见 `CandidateConfirmInput.photo_ids` / `share_photos`：缺失 + share_photos≠false → 共享全部来源图；
+          `share_photos=false` 或 `photo_ids=[]` → 明确不关联。
+        - **本轮客户端只做这两种形态**。「手工挑部分来源图」（photo_ids 既非 null 也非 []）是服务端已支持、
+          但**尚无客户端的输入形态（planned）**，UI 未做之前不得在文档/验收里承诺该能力。
+        - 响应 data 是扁平结构 `{item_id, public_code, movement_id}`（不嵌套 item），客户端用 item_id 跳转。
+        - 重复确认：**(actor, Idempotency-Key, body) 相同** → 200 且 `already_exists=true`（返回同一物品，安全重试）；
+          **换新键再确认同一个已处理候选** → 409 `IDEMPOTENCY_CONFLICT`（message「候选已被处理」）。
+          客户端收到 409 时应跳转到该候选已建的物品，不要新建。
+      parameters: [{$ref: "#/components/parameters/id"}, {$ref: "#/components/parameters/idemKey"}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: "#/components/schemas/CandidateConfirmInput"}}}
+      responses:
+        "200": {$ref: "#/components/responses/CandidateConfirmOK"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+        "422": {$ref: "#/components/responses/Unprocessable"}
+  /ai/candidates/{id}/discarded:
+    post:
+      tags: [ai]
+      summary: 丢弃候选
+      parameters: [{$ref: "#/components/parameters/id"}]
+      responses:
+        "200": {$ref: "#/components/responses/OK"}
+components:
+  securitySchemes:
+    bearerAuth: {type: http, scheme: bearer}
+  parameters:
+    id: {name: id, in: path, required: true, schema: {type: string, format: uuid}}
+    uid: {name: uid, in: path, required: true, schema: {type: string, format: uuid}}
+    page: {name: page, in: query, schema: {type: integer, minimum: 1, default: 1}}
+    pageSize: {name: page_size, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 20}}
+    spaceIdQ: {name: space_id, in: query, schema: {type: string}}
+    idemKey: {name: Idempotency-Key, in: header, schema: {type: string, format: uuid}}
+    fileId: {name: fileId, in: path, required: true, schema: {type: string, format: uuid}}
+    fieldId: {name: fieldId, in: path, required: true, schema: {type: string, description: 字段定义 field_id}}
+    ruleId: {name: ruleId, in: path, required: true, schema: {type: string, format: uuid}}
+    runId: {name: runId, in: path, required: true, schema: {type: string, format: uuid}}
+    messageId: {name: messageId, in: path, required: true, schema: {type: string, format: uuid}}
+  schemas:
+    AiTaskResult:
+      type: object
+      required: [task, candidates]
+      properties:
+        task: {$ref: "#/components/schemas/AiTask"}
+        candidates:
+          type: array
+          items: {$ref: "#/components/schemas/AiCandidate"}
+    AiTask:
+      type: object
+      required: [id, state]
+      properties:
+        id: {type: string}
+        kind: {type: string, example: recognize}
+        space_id: {type: string}
+        actor_id: {type: string}
+        state:
+          type: string
+          enum: [queued, running, succeeded, failed]
+          description: 业务层状态。**与 operation status 不可互相推导**：识别失败时 HTTP 仍是 202、幂等记录 succeeded，而这里是 failed。
+        attempt: {type: integer}
+        execution_version: {type: integer, format: int64}
+        input: {type: object, description: "识别入参快照（mode/images/template 等）", additionalProperties: true}
+        result: {type: object, nullable: true, additionalProperties: true}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    AiCandidate:
+      type: object
+      required: [id, state, source_image_ids]
+      properties:
+        id: {type: string}
+        task_id: {type: string}
+        space_id: {type: string}
+        index: {type: integer, description: 任务内序号，从 1 开始}
+        revision: {type: integer, format: int64}
+        name: {type: string}
+        summary: {type: string}
+        notes: {type: string}
+        fields: {type: object, additionalProperties: true}
+        applied: {type: object, additionalProperties: {type: string}}
+        manual_fields: {type: array, items: {type: string}}
+        source_image_ids:
+          type: array
+          items: {type: string}
+          description: 来源图片（file id）。确认时默认共享全部来源图给物品，见 POST /ai/candidates/{id}/confirm。
+        evidence: {type: string}
+        confidence: {type: number, format: double}
+        warnings: {type: array, items: {type: string}}
+        state:
+          type: string
+          enum: [pending, accepted, ignored]
+          description: 候选处理状态（与任务状态正交）。
+        confirmed_item_id: {type: string}
+        confirmed_operation_id: {type: string}
+        confirmed_at: {type: string, format: date-time}
+        ignored_at: {type: string, format: date-time}
+        created_at: {type: string, format: date-time}
+    Envelope:
+      type: object
+      properties:
+        data: {}
+        request_id: {type: string}
+    ApiError:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              description: |
+                稳定业务码集合（客户端按码分支，不解析 message）。**没有 400**：
+                VALIDATION_FAILED(422 入参校验：缺字段、类型错、body 里的 uuid 非法、creation_ref 非 uuid、
+                INVALID_IDEMPOTENCY_KEY 非 uuid/超长)、UNAUTHORIZED(401)、FORBIDDEN(403)、
+                FEATURE_DISABLED(403 库关闭了该功能)、NOT_FOUND(404 含路径资源 id 非 uuid、
+                「AI 任务目标库不可见」——一律 404 不区分无权)、VERSION_CONFLICT(409 乐观锁)、
+                CONFLICT(409)、IDEMPOTENCY_CONFLICT(409 同键不同体)、OPEN_BUSINESS(409 维修中或终态拦住库存/转库、
+                批次已确认完成)、FILE_IN_USE(409 删已关联文件)、INVALID_LOCATION(422 位置不存在或已删除)、
+                INVALID_TRANSFER_TARGET(422 目标库与当前库相同)、INVALID_STATUS(422 status 非法)、
+                INVALID_IMAGE_COUNT(422 图片张数超限)、PAYLOAD_TOO_LARGE(413 JSON body 超过 1MB)、
+                FILE_TOO_LARGE(413 文件上传超过 10MB)、RATE_LIMITED(429)、UNAVAILABLE(503)、INTERNAL(500)；
+                生产环境 setup secret 为空 → 403。
+                校验类 message 统一是「中文 + json tag 名」（如「缺少必填字段 space_id」「字段 space_id 必须是合法 ID」）。
+            message: {type: string}
+            details: {type: object}
+        request_id: {type: string}
+    CodeResolveResult:
+      type: object
+      description: |
+        扫码解析结果（`GET /codes/resolve`）。取自服务端 `labels.ResolvedCode`：
+        `resolved.kind` 是 item/space/location，`resolved.page_url` 是客户端可直接跳转的地址。
+      required: [is_code]
+      properties:
+        is_code:
+          type: boolean
+          description: false = 输入不是编码（普通搜索词），客户端应提示用搜索，不要报「无权访问」
+        value: {type: string, description: is_code=false 时回显归一化后的原始输入}
+        instance_id: {type: string, description: 编码里的实例标识（公开码可能为空）}
+        kind: {type: string, description: 编码里的对象类型（item/space/location）}
+        code: {type: string, description: 编码本体（规范化后的短码）}
+        payload: {type: string, description: 规范化后的完整二维码 payload（KLM1:...）}
+        resolved:
+          nullable: true
+          description: 解析到的对象；是编码但不可见/未接线时为 null（不是 404）
+          allOf: [{$ref: "#/components/schemas/ResolvedCode"}]
+    ResolvedCode:
+      type: object
+      required: [kind, object_id]
+      properties:
+        kind:
+          type: string
+          enum: [item, location]
+          description: 对象类型。当前只实现 `item` 与 `location`；库码（`S` 前缀）恒 not found（没有公开库码列，刻意不实现）
+        item_id:
+          type: string
+          description: 物品码专用的快捷字段，**仅 `kind=item` 时存在**；扫物品码直接进详情。与 `object_id` 并存（`object_id` 保留，不破旧契约）
+        object_id: {type: string, description: 对象标识（不透明字符串，不保证是 uuid）}
+        space_id:
+          type: string
+          nullable: true
+          description: 所属库，客户端据此切换当前库。**位置码为空**（位置是实例级目录，无库归属，与 `GET /locations` 同口径）
+        name: {type: string, description: 展示名}
+        subtitle: {type: string, description: 副标题（`kind=item` 时为公开码；`kind=location` 时为位置码本身）}
+        page_url:
+          type: string
+          description: 客户端可跳转的地址。`kind=item` 为物品详情，`kind=location` 固定为 `/bases`（web 的位置管理路由是 `bases`，不存在 `/locations` 路由）
+    SystemInfo:
+      type: object
+      properties:
+        instance_id: {type: string}
+        name: {type: string}
+        api_version: {type: string}
+        initialized: {type: boolean}
+    SessionUser:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        username: {type: string}
+        display_name: {type: string}
+        is_admin: {type: boolean}
+    LoginResult:
+      type: object
+      properties:
+        token: {type: string}
+        user: {$ref: "#/components/schemas/SessionUser"}
+    SetupInput:
+      type: object
+      required: [username, password]
+      properties:
+        secret:
+          type: string
+          description: 一次性初始化凭据；留空走网页向导模式（未初始化时首访问者可抢先建管理员）
+        username: {type: string, minLength: 2, maxLength: 32}
+        password: {type: string, minLength: 10}
+        display_name: {type: string}
+    LoginInput:
+      type: object
+      required: [username, password]
+      properties:
+        username: {type: string}
+        password: {type: string}
+    CreateUserInput:
+      type: object
+      required: [username, password]
+      properties:
+        username: {type: string}
+        password: {type: string}
+        display_name: {type: string}
+        is_admin: {type: boolean}
+    UserPatch:
+      type: object
+      properties:
+        display_name: {type: string}
+        is_admin: {type: boolean}
+        disabled: {type: boolean}
+    PasswordInput:
+      type: object
+      properties:
+        old_password: {type: string, description: 本人改密必填}
+        new_password: {type: string, minLength: 8}
+    SpaceInput:
+      type: object
+      required: [name]
+      properties:
+        name: {type: string}
+        parent_id: {type: string, format: uuid}
+        kind:
+          type: string
+          enum: [general, home, shared]
+          default: general
+          description: 库类型。默认 general（迁移默认值）；Web 从不显式传，走默认。其它值 → 422 VALIDATION_FAILED
+        is_private: {type: boolean}
+    NodeInput:
+      type: object
+      required: [space_id, name]
+      properties:
+        space_id: {type: string, format: uuid}
+        name: {type: string}
+        parent_id: {type: string, format: uuid}
+        sort: {type: integer}
+    NodePatch:
+      type: object
+      required: [version]
+      properties:
+        name: {type: string}
+        sort: {type: integer}
+        parent_id: {type: string, format: uuid, description: 键出现才移动}
+        version: {type: integer, minimum: 1}
+    SpaceNode:
+      type: object
+      properties:
+        id: {type: string}
+        parent_id: {type: string, nullable: true}
+        name: {type: string}
+        kind: {type: string}
+        is_private: {type: boolean}
+        sort: {type: integer}
+        version: {type: integer}
+    TreeNode:
+      type: object
+      properties:
+        id: {type: string}
+        parent_id: {type: string, nullable: true}
+        name: {type: string}
+        sort: {type: integer}
+        version: {type: integer}
+        code: {type: string, description: 位置 10 位码}
+    SpaceMember:
+      type: object
+      properties:
+        user_id: {type: string}
+        username: {type: string}
+        display_name: {type: string}
+        role: {type: string, enum: [owner, manager, editor, viewer]}
+    ItemInput:
+      type: object
+      required: [space_id, name]
+      properties:
+        space_id: {type: string}
+        name: {type: string}
+        template_key: {type: string, default: general}
+        management: {type: string, enum: [serial, quantity], default: serial}
+        unit: {type: string, default: 件}
+        note: {type: string}
+        category_id: {type: string, nullable: true}
+        initial_location_id: {type: string, format: uuid, description: "可选。传 → 同事务建 on_hand=initial_quantity（缺省 1）余额行；不传 → quantity=0 待入库。位置不存在 422 INVALID_LOCATION"}
+        initial_quantity: {type: string, description: "仅在传 initial_location_id 时生效，缺省 \"1\""}
+        creation_ref: {type: string, format: uuid, description: "客户端生成的去重引用；重复提交同 ref → 409 IDEMPOTENCY_CONFLICT，message 里带已建物品 id"}
+        fields: {type: object, description: 模板扩展字段，校验失败 details.fields 带逐字段原因}
+    ItemUpdate:
+      type: object
+      required: [expected_version]
+      properties:
+        name: {type: string}
+        note: {type: string}
+        fields: {type: object}
+        expected_version: {type: integer}
+    PhotoRef:
+      type: object
+      properties:
+        file_id: {type: string, format: uuid}
+        is_primary: {type: boolean}
+        sort: {type: integer}
+        url: {type: string, description: "受控访问地址（/api/v1/files/{id} 一律带 token 或签名）"}
+    PhotoLinkInput:
+      type: object
+      required: [file_ids]
+      additionalProperties: false
+      properties:
+        file_ids:
+          type: array
+          minItems: 1
+          items: {type: string, format: uuid}
+        primary_file_id: {type: string, format: uuid, description: "缺省取 file_ids[0]"}
+    PhotoOrderInput:
+      type: object
+      required: [file_ids]
+      additionalProperties: false
+      properties:
+        file_ids:
+          type: array
+          items: {type: string, format: uuid}
+          description: 必须是该物品现有照片的完整集合（服务端按此顺序写 sort）
+    CandidateConfirmInput:
+      type: object
+      additionalProperties: false
+      properties:
+        space_id: {type: string, description: 目标库；为空用候选所属库}
+        template_key: {type: string, description: 为空用识别任务里的模板}
+        name: {type: string, maxLength: 120, description: 允许改名义；为空用候选名称}
+        category_id: {type: string, description: 人工订正后的分类；为空用候选建议}
+        location_id: {type: string, description: "人工订正后的位置；为空则只建档案（quantity 为 0，待入库）；传了但位置不存在 → 422 INVALID_LOCATION"}
+        fields: {type: object, description: 人工订正后的字段值，覆盖候选建议}
+        quantity: {type: string, description: "初始库存数量（十进制字符串）；为空按模板默认（建了位置时为 1）"}
+        photo_ids:
+          type: array
+          nullable: true
+          items: {type: string, format: uuid}
+          description: |
+            要关联的文件 id 列表（POST /files 的返回值）。
+            - 缺失或 null 且 `share_photos` 不为 false → 共享该候选的全部来源图片（默认行为）。
+            - `share_photos: false`，或显式 `photo_ids: []` → 明确不关联任何图片（不要指望「空数组=默认」）。
+            - 传了非空列表 → 只关联这些文件；不属于本次候选来源的需是本人已上传文件，失败不阻断建档。
+        share_photos:
+          type: boolean
+          nullable: true
+          description: |
+            nil/缺失 = 默认共享来源图；false = 明确不共享（覆盖默认）；true 与缺失等价。
+            photo_ids 给了数组时本字段不生效（数组优先）。
+    CandidateConfirmResult:
+      type: object
+      additionalProperties: false
+      description: |
+        确认结果 data 本体，**恰好三个键**（不嵌套 item、不带 candidate_id/operation_id/already_exists），客户端用 item_id 跳转。
+        同 Idempotency-Key 重复确认返回同一 item，不重复建档。
+      required: [item_id, public_code, movement_id]
+      properties:
+        item_id: {type: string}
+        public_code: {type: string, description: 建档后生成的内码}
+        movement_id:
+          type: string
+          nullable: true
+          description: 初始库存流水 id；未带 location_id（待入库）或无期初库存时为 null，不是空串、不是省略键
+    OperationResult:
+      type: object
+      required: [operation_id, status]
+      properties:
+        operation_id: {type: string, format: uuid}
+        status: {type: string, enum: [in_progress, succeeded, failed]}
+        result: {description: 成功时的原响应 data 快照；失败为 null}
+        error_code: {type: string, description: "失败时的稳定业务码；in_progress/succeeded 为 null"}
+        created_at: {type: string, format: date-time, description: 操作首次被记录的时间}
+        updated_at: {type: string, format: date-time, description: 终态落库时间；in_progress 时等于 created_at}
+    Item:
+      type: object
+      properties:
+        id: {type: string}
+        template_key: {type: string}
+        name: {type: string}
+        public_code: {type: string}
+        location_id: {type: string, nullable: true}
+        location_path: {type: string}
+        quantity: {type: string, description: 十进制字符串}
+        status: {type: string, enum: [in_stock, pending_stock, reserved, maintenance, sold, scrapped, lost], description: "派生状态，见 GET /items 的 status 筛选说明；客户端不要把 out_of_stock 当合法值"}
+        lifecycle: {type: string, enum: [normal, sold, scrapped, lost], description: 档案生命周期（DB CHECK 约束同此四值）}
+        for_sale: {type: boolean, description: 待售标记}
+        maintenance_open: {type: boolean, description: 是否有未结维修}
+        version: {type: integer}
+        photo_file_id: {type: string, nullable: true}
+        fields: {type: object}
+        allowed_actions:
+          type: object
+          description: |
+            服务端按「库开关 × 权限 × 档案状态」算出的可执行动作，前端只按它显示/禁用按钮，不在客户端猜。
+            键集固定七个，全部为布尔；缺库权限时全部 false。
+          additionalProperties: false
+          properties:
+            transfer: {type: boolean, description: 转库}
+            sale: {type: boolean, description: 出售（库关闭出售时为 false）}
+            scrap: {type: boolean, description: 报废}
+            maintenance: {type: boolean, description: 维修开/关（库关闭维修保养时为 false）}
+            stocktake: {type: boolean, description: 纳入盘点（库关闭盘点时为 false）}
+            photos: {type: boolean, description: 照片增删改}
+            export: {type: boolean, description: 纳入导出}
+        action_blocked_reasons:
+          type: object
+          description: 仅包含 allowed_actions 中为 false 的键，值为给用户看的中文原因（如「该库已关闭出售」）；全可执行时为空对象。
+          additionalProperties: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    FileObject:
+      type: object
+      properties:
+        id: {type: string}
+        size: {type: integer}
+        content_type: {type: string}
+        sha256: {type: string}
+        created_at: {type: string, format: date-time}
+    StockOp:
+      type: object
+      required: [item_id, kind, quantity]
+      properties:
+        item_id: {type: string}
+        kind:
+          type: string
+          enum: [initial, replenish, consume, scrap, move_out, move_in, move, correction, loan_out, loan_return, sale_reserve, sale_release, sale_deliver]
+        location_id: {type: string, description: move 为源位置；其余操作必填}
+        to_location_id: {type: string, description: 仅 move}
+        quantity: {type: string, description: 十进制，最多 4 位小数；correction 可带符号}
+        reason: {type: string, description: correction 必填}
+    StockOperation:
+      type: object
+      properties:
+        id: {type: string}
+        item_id: {type: string}
+        kind: {type: string}
+        quantity: {type: string}
+        reason: {type: string}
+        created_at: {type: string, format: date-time}
+    Balance:
+      type: object
+      properties:
+        location_id: {type: string, nullable: true}
+        on_hand: {type: string}
+        reserved: {type: string}
+    StocktakeInput:
+      type: object
+      required: [space_id, lines]
+      properties:
+        space_id: {type: string}
+        location_id: {type: string, nullable: true}
+        lines:
+          type: array
+          items:
+            type: object
+            required: [item_id, counted]
+            properties:
+              item_id: {type: string}
+              location_id: {type: string, nullable: true}
+              counted: {type: string}
+    Stocktake:
+      type: object
+      properties:
+        id: {type: string}
+        space_id: {type: string}
+        status: {type: string, enum: [draft, confirmed, superseded]}
+        diff_count: {type: integer}
+        lines:
+          type: array
+          items:
+            type: object
+            properties:
+              item_id: {type: string}
+              location_id: {type: string, nullable: true}
+              expected: {type: string}
+              counted: {type: string}
+              diff: {type: string}
+    LoanInput:
+      type: object
+      required: [item_id, location_id, borrower_name]
+      properties:
+        item_id: {type: string}
+        location_id: {type: string}
+        borrower_name: {type: string, maxLength: 64}
+        due_date: {type: string, format: date}
+        note: {type: string}
+    Loan:
+      type: object
+      properties:
+        id: {type: string}
+        item_id: {type: string}
+        borrower_name: {type: string}
+        due_date: {type: string}
+        status: {type: string, enum: [out, returned]}
+        returned_at: {type: string, format: date-time, nullable: true}
+    SaleInput:
+      type: object
+      required: [item_id, location_id]
+      properties:
+        item_id: {type: string}
+        location_id: {type: string}
+        quantity: {type: string, default: "1"}
+        price: {type: string}
+        channel: {type: string}
+        note: {type: string}
+    Sale:
+      type: object
+      properties:
+        id: {type: string}
+        item_id: {type: string}
+        quantity: {type: string}
+        price: {type: string}
+    Job:
+      type: object
+      properties:
+        id: {type: string}
+        kind: {type: string}
+        payload: {}
+        status: {type: string, enum: [queued, running, succeeded, failed]}
+        run_at: {type: string, format: date-time}
+        error: {type: string, nullable: true}
+    AuditLog:
+      type: object
+      properties:
+        id: {type: string}
+        actor_id: {type: string}
+        action: {type: string}
+        object_type: {type: string}
+        object_id: {type: string}
+        space_id: {type: string, nullable: true}
+        detail: {}
+        created_at: {type: string, format: date-time}
+    LabelRender:
+      type: object
+      required: [layout]
+      properties:
+        layout: {type: object}
+        entries:
+          type: array
+          items:
+            type: object
+            properties:
+              code: {type: string}
+              title: {type: string}
+              subtitle: {type: string}
+    ImportBatch:
+      type: object
+      properties:
+        batch:
+          type: object
+          properties:
+            id: {type: string}
+            space_id: {type: string}
+            template_key: {type: string}
+            mapping: {type: object, additionalProperties: {type: string}, description: CSV 列名 → name/note/unit/字段 id}
+            headers: {type: array, items: {type: string}}
+            status: {type: string, enum: [draft, confirming, done]}
+            mode: {type: string, enum: [catalog, stock], description: 批次创建时固定，确认阶段不接受第二个位置}
+            location_id: {type: string, nullable: true, description: mode=stock 时的入库位置；catalog 为 null}
+            total: {type: integer}
+            ok: {type: integer}
+            failed: {type: integer}
+        preview:
+          type: array
+          description: 创建时返回前 10 行
+          items: {$ref: "#/components/schemas/ImportRow"}
+        rows:
+          type: array
+          items: {$ref: "#/components/schemas/ImportRow"}
+    ImportRow:
+      type: object
+      description: |
+        逐行结果（1 基行号对应用户表格里的数据行）。
+        行失败多为 payload 校验失败且服务端无改行接口：重跑同批次不改变 ok/failed 计数，修正内容需重新上传生成新批次。
+      required: [row_no, status]
+      properties:
+        row_no: {type: integer, description: 数据行号，1 基（不含表头）}
+        status: {type: string, enum: [catalog, stock, failed], description: catalog=只建档案；stock=建档案并入库；failed=失败}
+        item_id: {type: string, description: catalog/stock 成功时返回}
+        public_code: {type: string, description: catalog/stock 成功时返回的内码}
+        error_code: {type: string, description: failed 时的稳定业务码（VALIDATION_FAILED / INVALID_LOCATION / DUPLICATE_CODE 等）}
+        message: {type: string, description: failed 时的中文原因，可直接展示}
+    SpaceSettings:
+      type: object
+      description: 库四项开关（存储缺项视为开）
+      properties:
+        price: {type: boolean, description: 价格启用}
+        sale: {type: boolean, description: 出售启用}
+        maintenance: {type: boolean, description: 维修保养启用}
+        stocktake: {type: boolean, description: 盘点启用}
+    SpaceSettingsInput:
+      type: object
+      required: [settings, config_version]
+      properties:
+        settings: {$ref: "#/components/schemas/SpaceSettings"}
+        config_version: {type: integer, minimum: 1, description: 乐观锁版本}
+    FieldDef:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        field_id: {type: string, description: 稳定标识，不可变}
+        label: {type: string}
+        type: {type: string, enum: [text, number, date, select, multiselect]}
+        options: {type: array, items: {type: string}, description: select/multiselect 用}
+        required: {type: boolean}
+        sort: {type: integer}
+        version: {type: integer}
+    FieldDefInput:
+      type: object
+      required: [field_id, label, type]
+      properties:
+        field_id: {type: string}
+        label: {type: string}
+        type: {type: string, enum: [text, number, date, select, multiselect]}
+        options: {type: array, items: {type: string}}
+        required: {type: boolean}
+        sort: {type: integer}
+    FieldDefPatch:
+      type: object
+      required: [version]
+      properties:
+        label: {type: string}
+        type: {type: string, enum: [text, number, date, select, multiselect]}
+        options: {type: array, items: {type: string}}
+        required: {type: boolean}
+        sort: {type: integer}
+        version: {type: integer, minimum: 1}
+    TransferInput:
+      type: object
+      required: [to_space_id, to_location_id, expected_version]
+      properties:
+        to_space_id: {type: string, format: uuid}
+        to_location_id: {type: string, format: uuid}
+        expected_version: {type: integer, minimum: 1, description: 档案乐观锁}
+    TransferPreview:
+      type: object
+      properties:
+        item_id: {type: string}
+        item_name: {type: string}
+        from_space_id: {type: string}
+        from_location_id: {type: string}
+        to_space_id: {type: string}
+        to_location_id: {type: string}
+        warnings: {type: array, items: {type: string}}
+    ItemSaleInput:
+      type: object
+      properties:
+        price: {type: string, description: 价格开关关闭的库可不填}
+        note: {type: string}
+    MergeInput:
+      type: object
+      required: [keep_id, merge_ids]
+      properties:
+        keep_id: {type: string, format: uuid, description: 保留档案}
+        merge_ids: {type: array, minItems: 1, maxItems: 5, items: {type: string, format: uuid}, description: 被并入并删除的源档案}
+        fields: {type: object, additionalProperties: {type: string}, description: 合并后字段覆盖（空串不覆盖）}
+        photo_ids: {type: array, items: {type: string}, description: 保留的照片文件}
+    MaintenanceRecord:
+      type: object
+      properties:
+        id: {type: string}
+        item_id: {type: string}
+        reason: {type: string}
+        note: {type: string}
+        opened_by: {type: string}
+        opened_at: {type: string, format: date-time}
+        closed_by: {type: string, nullable: true}
+        closed_at: {type: string, format: date-time, nullable: true}
+    DuplicateHint:
+      type: object
+      properties:
+        id: {type: string}
+        name: {type: string}
+        public_code: {type: string}
+        reasons: {type: array, items: {type: string}, description: 如 同名/序列号相同（serial_no）}
+    RecycleEntry:
+      type: object
+      properties:
+        id: {type: string}
+        kind: {type: string, enum: [item, space]}
+        name: {type: string}
+        space_id: {type: string}
+        public_code: {type: string}
+        deleted_at: {type: string, format: date-time}
+        purge_after: {type: string, format: date-time, description: 30 天保留期截止}
+    ExportView:
+      type: object
+      properties:
+        id: {type: string}
+        status: {type: string, description: 生成状态}
+        row_count: {type: integer}
+        byte_size: {type: integer, format: int64}
+        file_name: {type: string}
+        error: {type: string}
+        created_at: {type: string, format: date-time}
+    RuleAction:
+      type: object
+      required: [type]
+      properties:
+        type: {type: string, enum: [set_field, move, notify]}
+        field_id: {type: string}
+        value: {description: 字面值；"__today__" 表示当前日期}
+        location_id: {type: string, description: move 动作目标位置}
+        title: {type: string, description: notify 动作消息标题}
+    RuleInput:
+      type: object
+      required: [name, trigger_type, actions]
+      properties:
+        name: {type: string}
+        enabled: {type: boolean, default: true}
+        trigger_type: {type: string, description: 如 field_changed}
+        config: {type: object, description: 触发条件配置（字段/匹配值等）}
+        actions: {type: array, items: {$ref: "#/components/schemas/RuleAction"}}
+        version: {type: integer, description: patch 时必填（乐观锁）}
+    Rule:
+      type: object
+      properties:
+        id: {type: string}
+        name: {type: string}
+        enabled: {type: boolean}
+        trigger_type: {type: string}
+        config: {type: object}
+        actions: {type: array, items: {$ref: "#/components/schemas/RuleAction"}}
+        created_by: {type: string}
+        version: {type: integer}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    RuleRun:
+      type: object
+      properties:
+        id: {type: string}
+        rule_id: {type: string}
+        item_id: {type: string}
+        status: {type: string, description: running/succeeded/failed 等}
+        error: {type: string}
+        attempts: {type: integer}
+        steps:
+          type: array
+          items:
+            type: object
+            properties:
+              seq: {type: integer}
+              action: {type: string}
+              target: {type: string}
+              status: {type: string}
+              version: {type: integer}
+              before: {}
+              after: {}
+              detail: {type: string}
+              undone: {type: boolean}
+    InboxMessage:
+      type: object
+      properties:
+        id: {type: string}
+        title: {type: string}
+        body: {type: string}
+        run_id: {type: string, description: 关联运行，可空}
+        read: {type: boolean}
+        created_at: {type: string, format: date-time}
+  responses:
+    OK:
+      description: OK
+      content: {application/json: {schema: {$ref: "#/components/schemas/Envelope"}}}
+    BadRequest:
+      description: 请求不合法
+      content: {application/json: {schema: {$ref: "#/components/schemas/ApiError"}}}
+    Unauthorized:
+      description: 未登录或凭据错误
+      content: {application/json: {schema: {$ref: "#/components/schemas/ApiError"}}}
+    Forbidden:
+      description: 权限不足
+      content: {application/json: {schema: {$ref: "#/components/schemas/ApiError"}}}
+    NotFound:
+      description: 不存在或无权看到
+      content: {application/json: {schema: {$ref: "#/components/schemas/ApiError"}}}
+    Conflict:
+      description: 业务冲突（乐观锁/唯一约束/状态机/库存不足）
+      content: {application/json: {schema: {$ref: "#/components/schemas/ApiError"}}}
+    RateLimited:
+      description: 尝试次数过多
+      content: {application/json: {schema: {$ref: "#/components/schemas/ApiError"}}}
+    SessionCreated:
+      description: 会话建立
+      content: {application/json: {schema: {$ref: "#/components/schemas/Envelope"}}}
+    UserOK:
+      description: 用户
+      content: {application/json: {schema: {$ref: "#/components/schemas/Envelope"}}}
+    UserList:
+      description: 用户分页
+      content: {application/json: {schema: {$ref: "#/components/schemas/Envelope"}}}
+    SpaceOK:
+      description: 库
+      content: {application/json: {schema: {$ref: "#/components/schemas/Envelope"}}}
+    SpaceList:
+      description: 库分页
+      content: {application/json: {schema: {$ref: "#/components/schemas/Envelope"}}}
+    MemberOK:
+      description: 成员
+      content: {application/json: {schema: {$ref: "#/components/schemas/Envelope"}}}
+    MemberList:
+      description: 成员列表
+      content: {application/json: {schema: {$ref: "#/components/schemas/Envelope"}}}
+    NodeOK:
+      description: 树节点
+      content: {application/json: {schema: {$ref: "#/components/schemas/Envelope"}}}
+    NodeList:
+      description: 树节点列表
+      content: {application/json: {schema: {$ref: "#/components/schemas/Envelope"}}}
+    ItemOK:
+      description: 物品
+      content: {application/json: {schema: {$ref: "#/components/schemas/Envelope"}}}
+    ItemList:
+      description: 物品分页
+      content: {application/json: {schema: {$ref: "#/components/schemas/Envelope"}}}
+    FileOK:
+      description: 文件对象
+      content: {application/json: {schema: {$ref: "#/components/schemas/Envelope"}}}
+    FileList:
+      description: 文件分页
+      content: {application/json: {schema: {$ref: "#/components/schemas/Envelope"}}}
+    BalanceList:
+      description: 分位置余额
+      content: {application/json: {schema: {$ref: "#/components/schemas/Envelope"}}}
+    OperationOK:
+      description: 库存操作/流水
+      content: {application/json: {schema: {$ref: "#/components/schemas/Envelope"}}}
+    OperationList:
+      description: 流水分页
+      content: {application/json: {schema: {$ref: "#/components/schemas/Envelope"}}}
+    StocktakeOK:
+      description: 盘点单
+      content: {application/json: {schema: {$ref: "#/components/schemas/Envelope"}}}
+    StocktakeList:
+      description: 盘点分页
+      content: {application/json: {schema: {$ref: "#/components/schemas/Envelope"}}}
+    LoanOK:
+      description: 借出单
+      content: {application/json: {schema: {$ref: "#/components/schemas/Envelope"}}}
+    LoanList:
+      description: 借出分页
+      content: {application/json: {schema: {$ref: "#/components/schemas/Envelope"}}}
+    SaleOK:
+      description: 售卖单
+      content: {application/json: {schema: {$ref: "#/components/schemas/Envelope"}}}
+    SaleList:
+      description: 售卖分页
+      content: {application/json: {schema: {$ref: "#/components/schemas/Envelope"}}}
+    JobOK:
+      description: 任务
+      content: {application/json: {schema: {$ref: "#/components/schemas/Envelope"}}}
+    JobList:
+      description: 任务分页
+      content: {application/json: {schema: {$ref: "#/components/schemas/Envelope"}}}
+    AuditList:
+      description: 审计分页
+      content: {application/json: {schema: {$ref: "#/components/schemas/Envelope"}}}
+    TemplateOK:
+      description: 模板清单
+      content: {application/json: {schema: {$ref: "#/components/schemas/Envelope"}}}
+    TemplateList:
+      description: 模板清单列表
+      content: {application/json: {schema: {$ref: "#/components/schemas/Envelope"}}}
+    ImportOK:
+      description: 导入批次；data = {batch, preview}（创建时）/ {batch, rows}（详情与确认）；失败行按 ImportRow 逐行返回
+      content: {application/json: {schema: {$ref: "#/components/schemas/Envelope"}}}
+    SpaceSettingsOK:
+      description: 库配置与配置版本
+      content: {application/json: {schema: {type: object, properties: {settings: {$ref: "#/components/schemas/SpaceSettings"}, config_version: {type: integer}}}}}
+    SpaceFieldOK:
+      description: 字段定义
+      content: {application/json: {schema: {$ref: "#/components/schemas/Envelope"}}}
+    SpaceFieldList:
+      description: 字段定义列表
+      content: {application/json: {schema: {type: object, properties: {items: {type: array, items: {$ref: "#/components/schemas/FieldDef"}}}}}}
+    TransferPreviewOK:
+      description: 转库预演结果
+      content: {application/json: {schema: {type: object, properties: {preview: {$ref: "#/components/schemas/TransferPreview"}}}}}
+    MaintenanceOK:
+      description: 维修记录
+      content: {application/json: {schema: {$ref: "#/components/schemas/Envelope"}}}
+    MaintenanceList:
+      description: 维修记录列表
+      content: {application/json: {schema: {type: object, properties: {records: {type: array, items: {$ref: "#/components/schemas/MaintenanceRecord"}}}}}}
+    DuplicateHintList:
+      description: 疑似重复候选
+      content: {application/json: {schema: {type: object, properties: {hints: {type: array, items: {$ref: "#/components/schemas/DuplicateHint"}}}}}}
+    RecycleSummaryOK:
+      description: 回收站汇总
+      content: {application/json: {schema: {type: object, properties: {items: {type: integer}, spaces: {type: integer, description: 仅管理员返回非零}}}}}
+    RecycleItemList:
+      description: 回收站物品分页
+      content: {application/json: {schema: {type: object, properties: {items: {type: array, items: {$ref: "#/components/schemas/RecycleEntry"}}}}}}
+    ExportOK:
+      description: 导出记录
+      content: {application/json: {schema: {$ref: "#/components/schemas/Envelope"}}}
+    ExportList:
+      description: 下载中心列表
+      content: {application/json: {schema: {type: object, properties: {items: {type: array, items: {$ref: "#/components/schemas/ExportView"}}}}}}
+    RuleOK:
+      description: 规则
+      content: {application/json: {schema: {$ref: "#/components/schemas/Envelope"}}}
+    RuleList:
+      description: 规则列表
+      content: {application/json: {schema: {type: object, properties: {items: {type: array, items: {$ref: "#/components/schemas/Rule"}}}}}}
+    RuleRunOK:
+      description: 规则运行详情
+      content: {application/json: {schema: {$ref: "#/components/schemas/Envelope"}}}
+    InboxList:
+      description: 收件箱消息
+      content: {application/json: {schema: {type: object, properties: {items: {type: array, items: {$ref: "#/components/schemas/InboxMessage"}}, unread: {type: integer}}}}}
+    Unprocessable:
+      description: |
+        422 语义不合法：缺字段/类型错（VALIDATION_FAILED）、body 里的 uuid 非法、creation_ref 非 uuid、
+        Idempotency-Key 非 uuid（INVALID_IDEMPOTENCY_KEY）、位置不存在（INVALID_LOCATION）、
+        目标库与当前库相同（INVALID_TRANSFER_TARGET）、status 值非法（INVALID_STATUS）、
+        图片张数超限（INVALID_IMAGE_COUNT）、行数超限等。二是**没有 400**。
+      content: {application/json: {schema: {$ref: "#/components/schemas/ApiError"}}}
+    PayloadTooLarge:
+      description: |
+        413 请求体超限，两种码：`PAYLOAD_TOO_LARGE`（JSON body 超过 1MB，统一由 BindJSON 拦截）与
+        `FILE_TOO_LARGE`（文件上传超过 10MB，导入/照片共用限制）。
+      content: {application/json: {schema: {$ref: "#/components/schemas/ApiError"}}}
+    FeatureDisabled:
+      description: |
+        403 该库关闭了此功能（FEATURE_DISABLED，如关闭出售/维修/盘点）。
+        **当前缺口**：服务端只存储库四开关（spaces/:id/settings），出售/维修/盘点链路尚未校验开关，
+        因此本码目前不会被返回；客户端按契约实现即可，服务端接线后自动生效。
+      content: {application/json: {schema: {$ref: "#/components/schemas/ApiError"}}}
+    PhotoListOK:
+      description: 照片列表（按 sort 升序，恰一条 is_primary）
+      content: {application/json: {schema: {type: object, properties: {data: {type: object, properties: {photos: {type: array, items: {$ref: "#/components/schemas/PhotoRef"}}}}, request_id: {type: string}}}}}
+    OperationResultOK:
+      description: 写操作结果（按客户端 operation_id 恢复）
+      content: {application/json: {schema: {type: object, properties: {data: {$ref: "#/components/schemas/OperationResult"}, request_id: {type: string}}}}}
+    CodeResolveOK:
+      description: |
+        扫码解析结果。`is_code=false` 只有「不是编码」才有（此时没有 resolved）；
+        是编码但当前用户不可见时 `is_code=true` 且 `resolved=null`（不用 404，不泄露存在性）。
+      content: {application/json: {schema: {type: object, properties: {data: {$ref: "#/components/schemas/CodeResolveResult"}, request_id: {type: string}}}}}
+    CandidateConfirmOK:
+      description: 确认结果（物品 + 是否幂等命中 + 照片关联逐条回执）
+      content: {application/json: {schema: {type: object, properties: {data: {$ref: "#/components/schemas/CandidateConfirmResult"}, request_id: {type: string}}}}}

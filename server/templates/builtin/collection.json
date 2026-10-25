@@ -1,0 +1,209 @@
+{
+  "schema_version": 1,
+  "template_key": "collection",
+  "name": "收藏档案",
+  "description": "系列、版本、品相、来源、购入日期与价格、估值及日期。面向卡片、模型、书刊等有版本概念的收藏。",
+  "group": "core",
+  "owner": "core",
+  "management": "serial",
+  "unit": "件",
+  "is_default": false,
+  "sort": 20,
+  "fields": [
+    {
+      "field_id": "series",
+      "label": "系列",
+      "type": "text",
+      "owner": "core",
+      "max_len": 128
+    },
+    {
+      "field_id": "edition",
+      "label": "版本",
+      "type": "text",
+      "owner": "core",
+      "max_len": 64
+    },
+    {
+      "field_id": "condition",
+      "label": "品相",
+      "type": "enum",
+      "owner": "core",
+      "options": [
+        "全新未拆",
+        "近全新",
+        "良好",
+        "有使用痕迹",
+        "有瑕疵",
+        "残品"
+      ]
+    },
+    {
+      "field_id": "source",
+      "label": "来源",
+      "type": "text",
+      "owner": "core",
+      "max_len": 128,
+      "help": "购入渠道或个人"
+    },
+    {
+      "field_id": "purchased_at",
+      "label": "购入日期",
+      "type": "date",
+      "owner": "core"
+    },
+    {
+      "field_id": "purchase_price",
+      "label": "购入价格",
+      "type": "money",
+      "owner": "core",
+      "unit": "currency"
+    },
+    {
+      "field_id": "valued_at",
+      "label": "估值日期",
+      "type": "date",
+      "owner": "core"
+    },
+    {
+      "field_id": "valuation",
+      "label": "估值",
+      "type": "money",
+      "owner": "core",
+      "unit": "currency"
+    },
+    {
+      "field_id": "sold_at",
+      "label": "售出日期",
+      "type": "date",
+      "owner": "core"
+    },
+    {
+      "field_id": "tags",
+      "label": "标签",
+      "type": "text",
+      "owner": "core",
+      "max_len": 256
+    }
+  ],
+  "columns": [
+    {
+      "field_id": "name",
+      "width": 220
+    },
+    {
+      "field_id": "public_code",
+      "width": 130
+    },
+    {
+      "field_id": "series",
+      "width": 160
+    },
+    {
+      "field_id": "edition",
+      "width": 110
+    },
+    {
+      "field_id": "condition",
+      "width": 110
+    },
+    {
+      "field_id": "location_path",
+      "width": 170
+    },
+    {
+      "field_id": "valuation",
+      "width": 110,
+      "hidden": true
+    },
+    {
+      "field_id": "photo",
+      "width": 72
+    },
+    {
+      "field_id": "updated_at",
+      "width": 160,
+      "hidden": true
+    }
+  ],
+  "filters": [
+    {
+      "key": "all",
+      "label": "全部",
+      "op": "not_empty",
+      "core_field": "name"
+    },
+    {
+      "key": "no_location",
+      "label": "未归档位置",
+      "op": "empty",
+      "core_field": "location_id"
+    },
+    {
+      "key": "photo_missing",
+      "label": "缺照片",
+      "op": "empty",
+      "core_field": "photo"
+    },
+    {
+      "key": "for_sale",
+      "label": "待售视图",
+      "op": "empty",
+      "field_id": "sold_at"
+    },
+    {
+      "key": "sold",
+      "label": "已售出",
+      "op": "not_empty",
+      "field_id": "sold_at"
+    },
+    {
+      "key": "valued",
+      "label": "已估值",
+      "op": "not_empty",
+      "field_id": "valuation"
+    },
+    {
+      "key": "need_valuation",
+      "label": "待估值",
+      "op": "empty",
+      "field_id": "valuation"
+    }
+  ],
+  "operations": [
+    {
+      "key": "core:view",
+      "label": "查看详情"
+    },
+    {
+      "key": "core:edit",
+      "label": "编辑资料"
+    },
+    {
+      "key": "core:move",
+      "label": "移动到位置/库"
+    },
+    {
+      "key": "core:add_photo",
+      "label": "补充照片"
+    },
+    {
+      "key": "core:print_label",
+      "label": "打印标签"
+    },
+    {
+      "key": "core:export",
+      "label": "导出所选"
+    }
+  ],
+  "preset": {
+    "tags": [
+      "收藏"
+    ],
+    "fields": {
+      "condition": "良好",
+      "valuation": null,
+      "valued_at": null
+    }
+  }
+}

@@ -1,0 +1,205 @@
+{
+  "schema_version": 1,
+  "template_key": "gear",
+  "name": "器材工具",
+  "description": "品牌、型号、序列号、购入日期、保修信息、配件说明。适合需要外借与维修记录的工具与设备。",
+  "group": "core",
+  "owner": "core",
+  "management": "serial",
+  "unit": "台",
+  "is_default": false,
+  "sort": 30,
+  "fields": [
+    {
+      "field_id": "brand",
+      "label": "品牌",
+      "type": "text",
+      "owner": "core",
+      "max_len": 64
+    },
+    {
+      "field_id": "model",
+      "label": "型号",
+      "type": "text",
+      "owner": "core",
+      "max_len": 64
+    },
+    {
+      "field_id": "serial_no",
+      "label": "序列号",
+      "type": "text",
+      "owner": "core",
+      "max_len": 64
+    },
+    {
+      "field_id": "purchased_at",
+      "label": "购入日期",
+      "type": "date",
+      "owner": "core"
+    },
+    {
+      "field_id": "purchase_price",
+      "label": "购入价格",
+      "type": "money",
+      "owner": "core",
+      "unit": "currency"
+    },
+    {
+      "field_id": "warranty_until",
+      "label": "保修截止",
+      "type": "date",
+      "owner": "core"
+    },
+    {
+      "field_id": "accessories",
+      "label": "配件说明",
+      "type": "textarea",
+      "owner": "core",
+      "max_len": 1000
+    },
+    {
+      "field_id": "condition",
+      "label": "状态",
+      "type": "enum",
+      "owner": "core",
+      "options": [
+        "可用",
+        "维修中",
+        "待报废",
+        "已报废"
+      ],
+      "default": "可用"
+    },
+    {
+      "field_id": "tags",
+      "label": "标签",
+      "type": "text",
+      "owner": "core",
+      "max_len": 256
+    }
+  ],
+  "columns": [
+    {
+      "field_id": "name",
+      "width": 200
+    },
+    {
+      "field_id": "public_code",
+      "width": 130
+    },
+    {
+      "field_id": "brand",
+      "width": 110
+    },
+    {
+      "field_id": "model",
+      "width": 130
+    },
+    {
+      "field_id": "condition",
+      "width": 100
+    },
+    {
+      "field_id": "location_path",
+      "width": 170
+    },
+    {
+      "field_id": "warranty_until",
+      "width": 120,
+      "hidden": true
+    },
+    {
+      "field_id": "photo",
+      "width": 72
+    },
+    {
+      "field_id": "updated_at",
+      "width": 160,
+      "hidden": true
+    }
+  ],
+  "filters": [
+    {
+      "key": "all",
+      "label": "全部",
+      "op": "not_empty",
+      "core_field": "name"
+    },
+    {
+      "key": "no_location",
+      "label": "未归档位置",
+      "op": "empty",
+      "core_field": "location_id"
+    },
+    {
+      "key": "photo_missing",
+      "label": "缺照片",
+      "op": "empty",
+      "core_field": "photo"
+    },
+    {
+      "key": "usable",
+      "label": "可用器材",
+      "op": "eq",
+      "field_id": "condition",
+      "value": "可用"
+    },
+    {
+      "key": "repairing",
+      "label": "维修中",
+      "op": "eq",
+      "field_id": "condition",
+      "value": "维修中"
+    },
+    {
+      "key": "warranty_expiring",
+      "label": "保修 30 天内到期",
+      "op": "between",
+      "field_id": "warranty_until",
+      "value": [
+        "__today__",
+        "__today+30d__"
+      ]
+    },
+    {
+      "key": "no_serial",
+      "label": "无序列号",
+      "op": "empty",
+      "field_id": "serial_no"
+    }
+  ],
+  "operations": [
+    {
+      "key": "core:view",
+      "label": "查看详情"
+    },
+    {
+      "key": "core:edit",
+      "label": "编辑资料"
+    },
+    {
+      "key": "core:move",
+      "label": "移动到位置/库"
+    },
+    {
+      "key": "core:add_photo",
+      "label": "补充照片"
+    },
+    {
+      "key": "core:print_label",
+      "label": "打印标签"
+    },
+    {
+      "key": "core:export",
+      "label": "导出所选"
+    }
+  ],
+  "preset": {
+    "tags": [
+      "器材"
+    ],
+    "fields": {
+      "condition": "可用"
+    }
+  }
+}

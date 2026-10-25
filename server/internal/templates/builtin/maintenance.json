@@ -1,0 +1,126 @@
+{
+  "schema_version": 1,
+  "template_key": "maintenance",
+  "name": "设备保养",
+  "description": "设备名称、型号、序列号、保养周期、上次保养。适合家电、工具、车辆等需要定期维护的设备。",
+  "group": "core",
+  "owner": "core",
+  "management": "serial",
+  "unit": "件",
+  "is_default": false,
+  "sort": 16,
+  "fields": [
+    {
+      "field_id": "model",
+      "label": "型号",
+      "type": "text",
+      "owner": "core",
+      "max_len": 80
+    },
+    {
+      "field_id": "serial_no",
+      "label": "出厂序列号",
+      "type": "text",
+      "owner": "core",
+      "max_len": 80
+    },
+    {
+      "field_id": "vendor",
+      "label": "供应商",
+      "type": "text",
+      "owner": "core",
+      "max_len": 80
+    },
+    {
+      "field_id": "purchased_at",
+      "label": "购入日期",
+      "type": "date",
+      "owner": "core"
+    },
+    {
+      "field_id": "maintenance_cycle_days",
+      "label": "保养周期(天)",
+      "type": "number",
+      "owner": "core",
+      "precision": 0,
+      "default": 180,
+      "unit": "percent"
+    },
+    {
+      "field_id": "last_maintained_at",
+      "label": "上次保养",
+      "type": "date",
+      "owner": "core"
+    },
+    {
+      "field_id": "purchase_price",
+      "label": "购置价格",
+      "type": "number",
+      "owner": "core",
+      "precision": 2,
+      "unit": "currency"
+    }
+  ],
+  "columns": [
+    {
+      "field_id": "name",
+      "width": 200
+    },
+    {
+      "field_id": "public_code",
+      "width": 130
+    },
+    {
+      "field_id": "model",
+      "width": 120
+    },
+    {
+      "field_id": "location_path",
+      "width": 180
+    }
+  ],
+  "filters": [
+    {
+      "key": "all",
+      "label": "全部",
+      "op": "not_empty",
+      "core_field": "name"
+    },
+    {
+      "key": "no_location",
+      "label": "未归档位置",
+      "op": "empty",
+      "core_field": "location_id"
+    }
+  ],
+  "operations": [
+    {
+      "key": "core:view",
+      "label": "查看详情"
+    },
+    {
+      "key": "core:edit",
+      "label": "编辑资料"
+    },
+    {
+      "key": "core:move",
+      "label": "移位"
+    },
+    {
+      "key": "core:add_photo",
+      "label": "添加照片"
+    },
+    {
+      "key": "core:print_label",
+      "label": "打印标签"
+    },
+    {
+      "key": "core:export",
+      "label": "导出"
+    }
+  ],
+  "preset": {
+    "tags": [],
+    "fields": {}
+  }
+}

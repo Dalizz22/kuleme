@@ -1,0 +1,199 @@
+{
+  "schema_version": 1,
+  "template_key": "stock",
+  "name": "数量库存",
+  "description": "规格、单位、位置余量、最低库存。面向耗材与散装物料，按位置登记余量并支持低库存提醒。",
+  "group": "core",
+  "owner": "core",
+  "management": "quantity",
+  "unit": "个",
+  "is_default": false,
+  "sort": 40,
+  "fields": [
+    {
+      "field_id": "spec",
+      "label": "规格",
+      "type": "text",
+      "owner": "core",
+      "max_len": 128,
+      "help": "例如 5 号电池、M3×8 螺丝"
+    },
+    {
+      "field_id": "quantity",
+      "label": "当前余量",
+      "type": "number",
+      "owner": "core",
+      "unit": "item",
+      "default": 0,
+      "precision": 2,
+      "help": "实际余量以库存流水为准，这里展示汇总值"
+    },
+    {
+      "field_id": "min_quantity",
+      "label": "最低库存",
+      "type": "number",
+      "owner": "core",
+      "unit": "item",
+      "default": 0,
+      "precision": 2
+    },
+    {
+      "field_id": "location_quantities",
+      "label": "位置余量",
+      "type": "text",
+      "owner": "core",
+      "readonly": true,
+      "help": "按位置汇总，由库存服务计算，不接受人工填写"
+    },
+    {
+      "field_id": "supplier",
+      "label": "供应商",
+      "type": "text",
+      "owner": "core",
+      "max_len": 128
+    },
+    {
+      "field_id": "last_restocked_at",
+      "label": "最近补充日期",
+      "type": "date",
+      "owner": "core"
+    },
+    {
+      "field_id": "expire_at",
+      "label": "到期日期",
+      "type": "date",
+      "owner": "core"
+    },
+    {
+      "field_id": "tags",
+      "label": "标签",
+      "type": "text",
+      "owner": "core",
+      "max_len": 256
+    }
+  ],
+  "columns": [
+    {
+      "field_id": "name",
+      "width": 200
+    },
+    {
+      "field_id": "public_code",
+      "width": 130
+    },
+    {
+      "field_id": "spec",
+      "width": 150
+    },
+    {
+      "field_id": "quantity",
+      "width": 100
+    },
+    {
+      "field_id": "unit",
+      "width": 80
+    },
+    {
+      "field_id": "location_path",
+      "width": 170
+    },
+    {
+      "field_id": "min_quantity",
+      "width": 100,
+      "hidden": true
+    },
+    {
+      "field_id": "expire_at",
+      "width": 120,
+      "hidden": true
+    },
+    {
+      "field_id": "updated_at",
+      "width": 160,
+      "hidden": true
+    }
+  ],
+  "filters": [
+    {
+      "key": "all",
+      "label": "全部",
+      "op": "not_empty",
+      "core_field": "name"
+    },
+    {
+      "key": "no_location",
+      "label": "未归档位置",
+      "op": "empty",
+      "core_field": "location_id"
+    },
+    {
+      "key": "photo_missing",
+      "label": "缺照片",
+      "op": "empty",
+      "core_field": "photo"
+    },
+    {
+      "key": "low_stock",
+      "label": "低于最低库存",
+      "op": "lte_field",
+      "field_id": "min_quantity",
+      "compare_with": "quantity"
+    },
+    {
+      "key": "out_of_stock",
+      "label": "已用尽",
+      "op": "eq",
+      "field_id": "quantity",
+      "value": 0
+    },
+    {
+      "key": "expiring_soon",
+      "label": "30 天内到期",
+      "op": "between",
+      "field_id": "expire_at",
+      "value": [
+        "__today__",
+        "__today+30d__"
+      ]
+    }
+  ],
+  "operations": [
+    {
+      "key": "core:view",
+      "label": "查看详情"
+    },
+    {
+      "key": "core:edit",
+      "label": "编辑资料"
+    },
+    {
+      "key": "core:move",
+      "label": "移动到位置/库"
+    },
+    {
+      "key": "core:adjust_quantity",
+      "label": "调整数量"
+    },
+    {
+      "key": "core:add_photo",
+      "label": "补充照片"
+    },
+    {
+      "key": "core:print_label",
+      "label": "打印标签"
+    },
+    {
+      "key": "core:export",
+      "label": "导出所选"
+    }
+  ],
+  "preset": {
+    "tags": [
+      "库存"
+    ],
+    "fields": {
+      "quantity": 0,
+      "min_quantity": 0
+    }
+  }
+}

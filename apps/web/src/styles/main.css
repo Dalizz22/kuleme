@@ -1,0 +1,28 @@
+/* D27 视觉基线：主色 #485fb3、页面底 #f4f6fc、白卡片、侧栏 240px/折叠 64px、工具栏 56px、间距 8px 基数 */
+:root {
+  --klm-primary: #485fb3;
+  --klm-bg: #f4f6fc;
+  --el-color-primary: #485fb3;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--klm-bg);
+  font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', sans-serif;
+}
+
+/* Element Plus 主题色对齐 D27 */
+:root {
+  --el-color-primary-light-3: #6d7fc2;
+  --el-color-primary-light-5: #8d99d1;
+  --el-color-primary-light-7: #b4bde1;
+  --el-color-primary-light-8: #c6cde8;
+  --el-color-primary-light-9: #e8ebf5;
+  --el-color-primary-dark-2: #3a4c8f;
+}

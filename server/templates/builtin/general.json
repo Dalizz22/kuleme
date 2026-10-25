@@ -1,0 +1,160 @@
+{
+  "schema_version": 1,
+  "template_key": "general",
+  "name": "通用清单",
+  "description": "名称、照片、数量、位置、分类、备注。适合还没想好归类的物品，之后再换模板不会丢资料。",
+  "group": "core",
+  "owner": "core",
+  "management": "serial",
+  "unit": "件",
+  "is_default": true,
+  "sort": 10,
+  "fields": [
+    {
+      "field_id": "quantity",
+      "label": "数量",
+      "type": "number",
+      "owner": "core",
+      "unit": "item",
+      "default": 1,
+      "precision": 0,
+      "help": "按件管理的物品数量固定为 1"
+    },
+    {
+      "field_id": "location",
+      "label": "位置",
+      "type": "text",
+      "owner": "core",
+      "max_len": 128,
+      "help": "填柜号、房间或容器名称"
+    },
+    {
+      "field_id": "photo_count",
+      "label": "照片数量",
+      "type": "number",
+      "owner": "core",
+      "unit": "item",
+      "precision": 0,
+      "default": 0
+    },
+    {
+      "field_id": "tags",
+      "label": "标签",
+      "type": "text",
+      "owner": "core",
+      "max_len": 256
+    },
+    {
+      "field_id": "purchased_at",
+      "label": "购入日期",
+      "type": "date",
+      "owner": "core"
+    },
+    {
+      "field_id": "purchase_price",
+      "label": "购入价格",
+      "type": "money",
+      "owner": "core",
+      "unit": "currency"
+    }
+  ],
+  "columns": [
+    {
+      "field_id": "name",
+      "width": 220
+    },
+    {
+      "field_id": "public_code",
+      "width": 130
+    },
+    {
+      "field_id": "location_path",
+      "width": 180
+    },
+    {
+      "field_id": "note",
+      "width": 200,
+      "hidden": true
+    },
+    {
+      "field_id": "category",
+      "width": 140,
+      "hidden": true
+    },
+    {
+      "field_id": "photo",
+      "width": 72
+    },
+    {
+      "field_id": "updated_at",
+      "width": 160,
+      "hidden": true
+    }
+  ],
+  "filters": [
+    {
+      "key": "all",
+      "label": "全部",
+      "op": "not_empty",
+      "core_field": "name"
+    },
+    {
+      "key": "no_location",
+      "label": "未归档位置",
+      "op": "empty",
+      "core_field": "location_id"
+    },
+    {
+      "key": "photo_missing",
+      "label": "缺照片",
+      "op": "empty",
+      "core_field": "photo"
+    },
+    {
+      "key": "quantity_zero",
+      "label": "数量为 0",
+      "op": "eq",
+      "field_id": "quantity",
+      "value": 0
+    },
+    {
+      "key": "recent",
+      "label": "最近更新",
+      "op": "not_empty",
+      "core_field": "updated_at"
+    }
+  ],
+  "operations": [
+    {
+      "key": "core:view",
+      "label": "查看详情"
+    },
+    {
+      "key": "core:edit",
+      "label": "编辑资料"
+    },
+    {
+      "key": "core:move",
+      "label": "移动到位置/库"
+    },
+    {
+      "key": "core:add_photo",
+      "label": "补充照片"
+    },
+    {
+      "key": "core:print_label",
+      "label": "打印标签"
+    },
+    {
+      "key": "core:export",
+      "label": "导出所选"
+    }
+  ],
+  "preset": {
+    "tags": [],
+    "fields": {
+      "quantity": 1,
+      "photo_count": 0
+    }
+  }
+}

@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>库了么 · 管理后台未构建</title>
+    <style>
+      body { font-family: -apple-system, "PingFang SC", sans-serif; margin: 4rem auto; max-width: 40rem; line-height: 1.7; color: #222; }
+      code { background: #f4f4f4; padding: .1em .35em; border-radius: 3px; }
+    </style>
+  </head>
+  <body>
+    <h1>管理后台尚未构建</h1>
+    <p>这个文件是占位页，只为让 <code>go:embed all:dist</code> 能在干净仓库里编译。</p>
+    <p>要显示真实界面，先构建前端并把产物放进本目录：</p>
+    <pre><code>npm install
+npm --workspace @klm/web run build
+rm -rf server/internal/web/dist/* &amp;&amp; cp -R apps/web/dist/. server/internal/web/dist/</code></pre>
+    <p>然后重新编译服务端：<code>cd server &amp;&amp; go build -o ../bin/klm ./cmd/klm</code>。</p>
+  </body>
+</html>
